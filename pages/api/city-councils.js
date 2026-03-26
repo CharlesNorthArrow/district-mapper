@@ -34,32 +34,31 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'bbox must be comma-separated numbers: west,south,east,north' });
   }
 
-  const geometry = JSON.stringify({
-    xmin: west, ymin: south, xmax: east, ymax: north,
-    spatialReference: { wkid: 4326 },
-  });
-
   const params = new URLSearchParams({
     f: 'geojson',
     geometryType: 'esriGeometryEnvelope',
-    geometry,
+    geometry: `${west},${south},${east},${north}`,
     inSR: '4326',
     outSR: '4326',
-    outFields: '*',
+    outFields: config.districtField,
     returnGeometry: 'true',
-    where: '1=1',
+    where: 'OBJECTID IS NOT NULL',
+    resultRecordCount: '500',
   });
 
   const url = `${config.arcgisEndpoint}/${config.layerId}/query?${params}`;
 
   try {
-    const upstream = await fetch(url);
-    if (!upstream.ok) {
-      return res.status(502).json({
-        error: `City ArcGIS returned ${upstream.status}: ${upstream.statusText}`,
-      });
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const text = await upstream.text();
+
+    let geojson;
+    try {
+      geojson = JSON.parse(text);
+    } catch {
+      return res.status(502).json({ error: `City ArcGIS returned non-JSON response (status ${upstream.status})` });
     }
-    const geojson = await upstream.json();
+
     if (geojson.error) {
       return res.status(502).json({ error: geojson.error.message || 'ArcGIS error' });
     }

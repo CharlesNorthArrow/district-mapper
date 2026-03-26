@@ -31,7 +31,8 @@ export default function Home() {
     }
 
     // Fetch boundary GeoJSON via our proxy
-    const bbox = currentBbox || '-180,-90,180,90';
+    // Fall back to contiguous US if the map hasn't fired its first bbox event yet
+    const bbox = currentBbox || '-125,24,-66,50';
     const res = await fetch(`/api/boundaries?layer=${layerId}&bbox=${bbox}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

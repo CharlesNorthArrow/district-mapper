@@ -38,10 +38,11 @@ const MapView = forwardRef(function MapView({ onBboxChange }, ref) {
       if (!map) return;
 
       // Remove existing layers/source for this id if present
-      this.removeBoundaryLayer(id);
-
       const fillId = `${id}-fill`;
       const lineId = `${id}-line`;
+      if (map.getLayer(fillId)) map.removeLayer(fillId);
+      if (map.getLayer(lineId)) map.removeLayer(lineId);
+      if (map.getSource(id)) map.removeSource(id);
 
       map.addSource(id, { type: 'geojson', data: geojson });
       map.addLayer({
