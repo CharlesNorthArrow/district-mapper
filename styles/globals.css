@@ -1,42 +1,44 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Open+Sans:wght@400;600&display=swap');
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
+*, *::before, *::after {
   box-sizing: border-box;
-  padding: 0;
   margin: 0;
+  padding: 0;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+:root {
+  --red: #e63947;
+  --off-white: #f2f8ee;
+  --light-blue: #a9dadc;
+  --mid-blue: #467c9d;
+  --dark-navy: #1c3557;
+
+  --sidebar-width: 280px;
+  --panel-height: 360px;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+html, body, #__next {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: 'Open Sans', sans-serif;
+  font-size: 14px;
+  color: var(--dark-navy);
+  background: var(--off-white);
+  overflow: hidden;
+}
+
+h1, h2 {
+  font-family: 'Poppins', sans-serif;
+}
+
+button {
+  font-family: 'Open Sans', sans-serif;
+  cursor: pointer;
+}
+
+input, select {
+  font-family: 'Open Sans', sans-serif;
 }
