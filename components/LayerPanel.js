@@ -32,6 +32,8 @@ export default function LayerPanel({
   const [selectedCities, setSelectedCities] = useState([]);
   const [stateSearch, setStateSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
+  const [showStateSearch, setShowStateSearch] = useState(false);
+  const [showCitySearch, setShowCitySearch] = useState(false);
   const [lookupInput, setLookupInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const lookupInputRef = useRef();
@@ -90,11 +92,14 @@ export default function LayerPanel({
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    if (key === 'state') setShowStateSearch(false);
+    if (key === 'local') setShowCitySearch(false);
   }
 
   function addState(name) {
     setSelectedStates((prev) => prev.includes(name) ? prev : [...prev, name]);
     setStateSearch('');
+    setShowStateSearch(false);
     const bbox = STATE_BBOX[name];
     if (bbox) onGeographySelect?.(bbox);
   }
@@ -106,6 +111,7 @@ export default function LayerPanel({
   function addCity(slug) {
     setSelectedCities((prev) => prev.includes(slug) ? prev : [...prev, slug]);
     setCitySearch('');
+    setShowCitySearch(false);
     const bbox = CITY_BBOX[slug];
     if (bbox) onGeographySelect?.(bbox);
   }
@@ -310,38 +316,37 @@ export default function LayerPanel({
               </div>
             )}
 
-            {/* Your data suggestions */}
-            {geoSuggestions?.states.filter((s) => !selectedStates.includes(s)).length > 0 && (
-              <div style={styles.suggestionGroup}>
-                <span style={styles.suggestionLabel}>Your data</span>
-                <div style={styles.chips}>
-                  {geoSuggestions.states.filter((s) => !selectedStates.includes(s)).map((s) => (
-                    <button key={s} style={styles.chip} onClick={() => addState(s)}>
-                      + {NAME_TO_ABBR[s] || s}
-                    </button>
-                  ))}
-                </div>
+            {/* State search — shown only when user asks for it */}
+            {showStateSearch ? (
+              <div style={styles.searchBox}>
+                <input
+                  autoFocus
+                  style={styles.search}
+                  placeholder="Search states…"
+                  value={stateSearch}
+                  onChange={(e) => setStateSearch(e.target.value)}
+                />
+                {filteredStates.filter((s) => !selectedStates.includes(s)).length > 0 && (
+                  <select
+                    style={styles.select}
+                    value=""
+                    onChange={(e) => { if (e.target.value) addState(e.target.value); }}
+                    size={4}
+                  >
+                    <option value="" disabled />
+                    {filteredStates.filter((s) => !selectedStates.includes(s)).map((s) => (
+                      <option key={s} value={s}>{s} ({NAME_TO_ABBR[s] || ''})</option>
+                    ))}
+                  </select>
+                )}
+                <button style={styles.cancelSearchBtn} onClick={() => { setShowStateSearch(false); setStateSearch(''); }}>
+                  Cancel
+                </button>
               </div>
-            )}
-
-            <input
-              style={styles.search}
-              placeholder="Add a state…"
-              value={stateSearch}
-              onChange={(e) => setStateSearch(e.target.value)}
-            />
-            {filteredStates.filter((s) => !selectedStates.includes(s)).length > 0 && (
-              <select
-                style={styles.select}
-                value=""
-                onChange={(e) => { if (e.target.value) addState(e.target.value); }}
-                size={4}
-              >
-                <option value="" disabled />
-                {filteredStates.filter((s) => !selectedStates.includes(s)).map((s) => (
-                  <option key={s} value={s}>{s} ({NAME_TO_ABBR[s] || ''})</option>
-                ))}
-              </select>
+            ) : (
+              <button style={styles.addBtn} onClick={() => setShowStateSearch(true)}>
+                + Add state
+              </button>
             )}
 
             {selectedStates.length > 0 ? (
@@ -356,9 +361,11 @@ export default function LayerPanel({
                 ))}
               </div>
             ) : (
-              <p style={{ ...styles.hint, marginTop: 6 }}>
-                Select one or more states to enable district layers
-              </p>
+              !showStateSearch && (
+                <p style={{ ...styles.hint, marginTop: 6 }}>
+                  Select a state to enable district layers
+                </p>
+              )
             )}
           </div>
         )}
@@ -387,38 +394,37 @@ export default function LayerPanel({
               </div>
             )}
 
-            {/* Your data city suggestions */}
-            {geoSuggestions?.cities.filter((s) => !selectedCities.includes(s)).length > 0 && (
-              <div style={styles.suggestionGroup}>
-                <span style={styles.suggestionLabel}>Your data</span>
-                <div style={styles.chips}>
-                  {geoSuggestions.cities.filter((s) => !selectedCities.includes(s)).map((slug) => (
-                    <button key={slug} style={styles.chip} onClick={() => addCity(slug)}>
-                      + {CITY_COUNCIL_REGISTRY[slug]?.name || slug}
-                    </button>
-                  ))}
-                </div>
+            {/* City search — shown only when user asks for it */}
+            {showCitySearch ? (
+              <div style={styles.searchBox}>
+                <input
+                  autoFocus
+                  style={styles.search}
+                  placeholder="Search cities…"
+                  value={citySearch}
+                  onChange={(e) => setCitySearch(e.target.value)}
+                />
+                {cityEntries.filter(([slug]) => !selectedCities.includes(slug)).length > 0 && (
+                  <select
+                    style={styles.select}
+                    value=""
+                    onChange={(e) => { if (e.target.value) addCity(e.target.value); }}
+                    size={4}
+                  >
+                    <option value="" disabled />
+                    {cityEntries.filter(([slug]) => !selectedCities.includes(slug)).map(([slug, c]) => (
+                      <option key={slug} value={slug}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+                <button style={styles.cancelSearchBtn} onClick={() => { setShowCitySearch(false); setCitySearch(''); }}>
+                  Cancel
+                </button>
               </div>
-            )}
-
-            <input
-              style={styles.search}
-              placeholder="Add a city…"
-              value={citySearch}
-              onChange={(e) => setCitySearch(e.target.value)}
-            />
-            {cityEntries.filter(([slug]) => !selectedCities.includes(slug)).length > 0 && (
-              <select
-                style={styles.select}
-                value=""
-                onChange={(e) => { if (e.target.value) addCity(e.target.value); }}
-                size={4}
-              >
-                <option value="" disabled />
-                {cityEntries.filter(([slug]) => !selectedCities.includes(slug)).map(([slug, c]) => (
-                  <option key={slug} value={slug}>{c.name}</option>
-                ))}
-              </select>
+            ) : (
+              <button style={styles.addBtn} onClick={() => setShowCitySearch(true)}>
+                + Add city
+              </button>
             )}
 
             {/* Layers per selected city */}
@@ -445,6 +451,12 @@ export default function LayerPanel({
                   </div>
                 ))}
               </div>
+            )}
+
+            {!selectedCities.length && !showCitySearch && (
+              <p style={{ ...styles.hint, marginTop: 6 }}>
+                Select a city to enable council districts
+              </p>
             )}
 
             <p style={{ ...styles.hint, marginTop: 12 }}>Custom boundary (GeoJSON)</p>
@@ -651,11 +663,16 @@ const styles = {
     padding: 2,
   },
   hint: { fontSize: 11, color: '#7a8fa6', marginBottom: 4 },
-  suggestionGroup: { marginBottom: 8 },
-  suggestionLabel: {
-    fontSize: 10, fontWeight: 600, color: '#7a8fa6',
-    textTransform: 'uppercase', letterSpacing: '0.04em',
-    display: 'block', marginBottom: 4,
+  searchBox: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 },
+  addBtn: {
+    background: 'none', border: '1px dashed #c5d0da', borderRadius: 3,
+    fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
+    cursor: 'pointer', padding: '4px 10px', alignSelf: 'flex-start',
+    marginBottom: 4,
+  },
+  cancelSearchBtn: {
+    background: 'none', border: 'none', fontSize: 11, color: '#7a8fa6',
+    cursor: 'pointer', padding: 0, textDecoration: 'underline', alignSelf: 'flex-start',
   },
   chips: { display: 'flex', flexWrap: 'wrap', gap: 4 },
   chip: {
