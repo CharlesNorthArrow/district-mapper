@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { STATE_FIPS } from '../lib/stateFips';
@@ -17,8 +17,10 @@ export default function LayerPanel({
   onUploadClick,
   hasData,
   onAddressLookup,
+  onAddressSelect,
   lookupStatus,
   lookupLabel,
+  lookupDistricts,
 }) {
   const [openSections, setOpenSections] = useState({ national: true, state: false, local: false });
   const [selectedState, setSelectedState] = useState('');
@@ -26,7 +28,27 @@ export default function LayerPanel({
   const [stateSearch, setStateSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
   const [lookupInput, setLookupInput] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
   const lookupInputRef = useRef();
+
+  // Debounced autocomplete — calls Mapbox Geocoding API as user types
+  useEffect(() => {
+    const q = lookupInput.trim();
+    if (q.length < 3) { setSuggestions([]); return; }
+    const timer = setTimeout(async () => {
+      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+      if (!token) return;
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
+          `?access_token=${token}&autocomplete=true&country=us&types=address,place,locality&limit=5`
+        );
+        const data = await res.json();
+        setSuggestions(data.features || []);
+      } catch { /* network error — leave suggestions as-is */ }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [lookupInput]);
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -92,10 +114,12 @@ export default function LayerPanel({
 
       {/* Address lookup */}
       <div style={styles.lookupBox}>
+        <div style={{ position: 'relative' }}>
         <form
           style={styles.lookupRow}
           onSubmit={(e) => {
             e.preventDefault();
+            setSuggestions([]);
             onAddressLookup(lookupInput);
           }}
         >
@@ -105,7 +129,9 @@ export default function LayerPanel({
             placeholder="Look up an address…"
             value={lookupInput}
             onChange={(e) => setLookupInput(e.target.value)}
+            onBlur={() => setTimeout(() => setSuggestions([]), 150)}
             disabled={lookupStatus === 'loading'}
+            autoComplete="off"
           />
           <button
             type="submit"
@@ -115,8 +141,46 @@ export default function LayerPanel({
             {lookupStatus === 'loading' ? '…' : '→'}
           </button>
         </form>
+
+        </div>
+        {suggestions.length > 0 && (
+          <div style={styles.suggestions}>
+            {suggestions.map((f) => (
+              <button
+                key={f.id}
+                style={styles.suggestion}
+                onMouseDown={() => {
+                  const [lng, lat] = f.center;
+                  setLookupInput(f.place_name);
+                  setSuggestions([]);
+                  onAddressSelect(lat, lng, f.place_name);
+                }}
+              >
+                {f.place_name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {lookupStatus === 'found' && (
-          <p style={styles.lookupFound}>{lookupLabel}</p>
+          <>
+            <p style={styles.lookupFound}>{lookupLabel}</p>
+            {Object.keys(lookupDistricts || {}).length > 0 && (
+              <div style={styles.lookupDistricts}>
+                {Object.entries(lookupDistricts).map(([layerId, name]) => (
+                  <div key={layerId} style={styles.lookupDistrictRow}>
+                    <span style={styles.lookupDistrictLabel}>
+                      {LAYER_CONFIG[layerId]?.displayName || layerId}
+                    </span>
+                    <span style={styles.lookupDistrictName}>{name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {Object.keys(lookupDistricts || {}).length === 0 && activeLayers.length > 0 && (
+              <p style={styles.lookupNoMatch}>No district match — try enabling boundary layers</p>
+            )}
+          </>
         )}
         {lookupStatus === 'error' && (
           <p style={styles.lookupError}>{lookupLabel}</p>
@@ -289,6 +353,28 @@ const styles = {
     cursor: 'pointer',
     fontWeight: 700,
   },
+  suggestions: {
+    position: 'absolute',
+    left: 0, right: 0,
+    background: '#fff',
+    border: '1px solid #c5d0da',
+    borderRadius: '0 0 4px 4px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    zIndex: 50,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  suggestion: {
+    background: 'none',
+    border: 'none',
+    borderBottom: '1px solid #f0f4f8',
+    padding: '7px 10px',
+    fontSize: 12,
+    textAlign: 'left',
+    cursor: 'pointer',
+    lineHeight: 1.4,
+    color: 'var(--dark-navy)',
+  },
   lookupFound: {
     fontSize: 11,
     color: '#166534',
@@ -296,6 +382,35 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  lookupDistricts: {
+    marginTop: 6,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+  },
+  lookupDistrictRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  lookupDistrictLabel: {
+    fontSize: 10,
+    color: '#7a8fa6',
+    whiteSpace: 'nowrap',
+  },
+  lookupDistrictName: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: 'var(--dark-navy)',
+    textAlign: 'right',
+  },
+  lookupNoMatch: {
+    fontSize: 11,
+    color: '#7a8fa6',
+    margin: '4px 0 0',
+    fontStyle: 'italic',
   },
   lookupError: {
     fontSize: 11,

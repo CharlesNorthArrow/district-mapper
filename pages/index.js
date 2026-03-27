@@ -27,6 +27,7 @@ export default function Home() {
   const [selectedDistrict, setSelectedDistrict] = useState(null); // { layerId, districtName } | null
   const [lookupStatus, setLookupStatus] = useState('idle'); // idle | loading | found | error
   const [lookupLabel, setLookupLabel] = useState('');
+  const [lookupDistricts, setLookupDistricts] = useState({});
 
   // Recompute enriched points whenever upload data or loaded boundary layers change
   useEffect(() => {
@@ -47,10 +48,28 @@ export default function Home() {
     }
   }
 
+  function pinAndAssignDistricts(lat, lng, label) {
+    mapRef.current?.addSearchPin(lng, lat);
+    setLookupStatus('found');
+    setLookupLabel(label);
+    if (Object.keys(layerGeojson).length > 0) {
+      const [enriched] = assignDistricts([{ lat, lng, _rowIndex: 0 }], layerGeojson);
+      const districts = {};
+      for (const layerId of activeLayers) {
+        if (enriched[layerId]) districts[layerId] = enriched[layerId];
+      }
+      setLookupDistricts(districts);
+    } else {
+      setLookupDistricts({});
+    }
+  }
+
+  // Called when user submits typed text — geocodes first
   async function handleAddressLookup(address) {
     if (!address.trim()) return;
     setLookupStatus('loading');
     setLookupLabel('');
+    setLookupDistricts({});
     try {
       const res = await fetch('/api/geocode', {
         method: 'POST',
@@ -64,13 +83,17 @@ export default function Home() {
         setLookupLabel('Address not found');
         return;
       }
-      mapRef.current?.addSearchPin(result.lng, result.lat);
-      setLookupStatus('found');
-      setLookupLabel(result.address || address);
+      pinAndAssignDistricts(result.lat, result.lng, result.address || address);
     } catch {
       setLookupStatus('error');
       setLookupLabel('Geocoding failed — check your connection');
     }
+  }
+
+  // Called when user picks an autocomplete suggestion — coordinates already known
+  function handleAddressSelect(lat, lng, label) {
+    setLookupDistricts({});
+    pinAndAssignDistricts(lat, lng, label);
   }
 
   function removeLayer(layerId) {
@@ -153,8 +176,10 @@ export default function Home() {
           onUploadClick={() => setShowUploadModal(true)}
           hasData={!!uploadedData}
           onAddressLookup={handleAddressLookup}
+          onAddressSelect={handleAddressSelect}
           lookupStatus={lookupStatus}
           lookupLabel={lookupLabel}
+          lookupDistricts={lookupDistricts}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
