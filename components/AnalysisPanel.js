@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { summarizeByLayer } from '../lib/pointInDistrict';
+import { buildFilteredCSV, downloadCSV } from '../lib/exportHelpers';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import ExportControls from './ExportControls';
 
@@ -13,6 +14,8 @@ export default function AnalysisPanel({
 }) {
   const [selectedLayer, setSelectedLayer] = useState(null);
   const [open, setOpen] = useState(true);
+  const [checkedDistricts, setCheckedDistricts] = useState(new Set());
+  const selectAllRef = useRef(null);
 
   const { points, originalRows, headers } = uploadedData;
 
@@ -33,10 +36,50 @@ export default function AnalysisPanel({
   const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
   const unmatchedCount = enrichedPoints.filter((p) => p.unmatched).length;
 
+  // Count rows matching the checked districts
+  const checkedRowCount = useMemo(() => {
+    if (!activeLayer || checkedDistricts.size === 0) return 0;
+    return enrichedPoints.filter((p) => checkedDistricts.has(p[activeLayer])).length;
+  }, [enrichedPoints, activeLayer, checkedDistricts]);
+
+  // Keep the select-all checkbox indeterminate state in sync
+  useMemo(() => {
+    if (!selectAllRef.current || rows.length === 0) return;
+    const allChecked = rows.every((r) => checkedDistricts.has(r.districtName));
+    const someChecked = rows.some((r) => checkedDistricts.has(r.districtName));
+    selectAllRef.current.checked = allChecked;
+    selectAllRef.current.indeterminate = someChecked && !allChecked;
+  }, [checkedDistricts, rows]);
+
   function handleTabClick(id) {
     setSelectedLayer(id);
-    // Clear filter when switching tabs
+    setCheckedDistricts(new Set());
     if (selectedDistrict) onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName);
+  }
+
+  function toggleCheck(districtName) {
+    setCheckedDistricts((prev) => {
+      const next = new Set(prev);
+      if (next.has(districtName)) next.delete(districtName);
+      else next.add(districtName);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const allChecked = rows.every((r) => checkedDistricts.has(r.districtName));
+    if (allChecked) {
+      setCheckedDistricts(new Set());
+    } else {
+      setCheckedDistricts(new Set(rows.map((r) => r.districtName)));
+    }
+  }
+
+  function handleFilteredDownload() {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const layerName = getDisplayName(activeLayer).replace(/\s+/g, '-').toLowerCase();
+    const csv = buildFilteredCSV(originalRows, enrichedPoints, activeLayer, checkedDistricts, activeLayers);
+    downloadCSV(csv, `filtered-${layerName}-${dateStr}.csv`);
   }
 
   function getDisplayName(layerId) {
@@ -91,10 +134,35 @@ export default function AnalysisPanel({
                 ))}
               </div>
 
+              {/* Contextual download bar — visible when districts are checked */}
+              {checkedDistricts.size > 0 && (
+                <div style={downloadBar}>
+                  <span style={downloadBarLabel}>
+                    {checkedDistricts.size} {checkedDistricts.size === 1 ? 'district' : 'districts'} selected
+                    &nbsp;·&nbsp;
+                    {checkedRowCount.toLocaleString()} rows
+                  </span>
+                  <button style={downloadBarBtn} onClick={handleFilteredDownload}>
+                    Download CSV
+                  </button>
+                  <button style={downloadBarClear} onClick={() => setCheckedDistricts(new Set())}>
+                    Clear
+                  </button>
+                </div>
+              )}
+
               <div style={tableWrap}>
                 <table style={table}>
                   <thead>
                     <tr>
+                      <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
+                        <input
+                          ref={selectAllRef}
+                          type="checkbox"
+                          onChange={toggleSelectAll}
+                          title="Select all districts"
+                        />
+                      </th>
                       <th style={th}>District</th>
                       <th style={{ ...th, textAlign: 'right' }}>Points</th>
                       <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
@@ -105,20 +173,35 @@ export default function AnalysisPanel({
                   </thead>
                   <tbody>
                     {rows.map((row, i) => {
-                      const isSelected =
+                      const isMapFiltered =
                         selectedDistrict?.layerId === activeLayer &&
                         selectedDistrict?.districtName === row.districtName;
+                      const isChecked = checkedDistricts.has(row.districtName);
                       return (
                         <tr
                           key={i}
                           style={{
                             ...(i % 2 === 0 ? {} : { background: '#f7fafc' }),
-                            ...(isSelected ? selectedRow : {}),
-                            cursor: 'pointer',
+                            ...(isMapFiltered ? mapFilteredRow : {}),
+                            ...(isChecked ? checkedRow : {}),
                           }}
-                          onClick={() => onDistrictSelect(activeLayer, row.districtName)}
                         >
-                          <td style={td}>{row.districtName}</td>
+                          <td
+                            style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleCheck(row.districtName)}
+                            />
+                          </td>
+                          <td
+                            style={{ ...td, cursor: 'pointer' }}
+                            onClick={() => onDistrictSelect(activeLayer, row.districtName)}
+                          >
+                            {row.districtName}
+                          </td>
                           <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
                           {numericFields.slice(0, 3).map((f) => (
@@ -133,6 +216,7 @@ export default function AnalysisPanel({
                     })}
                     {unmatchedCount > 0 && (
                       <tr style={{ background: '#fff5f5' }}>
+                        <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
                         <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
                           {unmatchedCount.toLocaleString()}
@@ -198,6 +282,26 @@ const tabBtn = {
   padding: '4px 10px', border: 'none', borderRadius: 3,
   fontSize: 11, fontWeight: 600, cursor: 'pointer',
 };
+const downloadBar = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '5px 12px',
+  background: '#fefce8',
+  borderBottom: '1px solid #fde68a',
+  flexShrink: 0,
+};
+const downloadBarLabel = {
+  fontSize: 12, color: '#92400e', flex: 1,
+};
+const downloadBarBtn = {
+  padding: '3px 10px',
+  background: 'var(--dark-navy)', color: '#fff',
+  border: 'none', borderRadius: 3,
+  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+};
+const downloadBarClear = {
+  background: 'none', border: 'none',
+  fontSize: 11, color: '#92400e', cursor: 'pointer', textDecoration: 'underline',
+};
 const tableWrap = {
   flex: 1, overflowY: 'auto', padding: '0 12px',
 };
@@ -213,9 +317,12 @@ const th = {
 const td = {
   padding: '4px 8px', borderBottom: '1px solid #f0f4f8', fontSize: 12,
 };
-const selectedRow = {
+const mapFilteredRow = {
   background: '#e8f0fe',
-  borderLeft: '3px solid var(--mid-blue)',
+  boxShadow: 'inset 3px 0 0 var(--mid-blue)',
+};
+const checkedRow = {
+  background: '#fefce8',
 };
 const filterBadge = {
   display: 'flex', alignItems: 'center', gap: 4,
