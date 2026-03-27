@@ -26,7 +26,14 @@ const MapView = forwardRef(function MapView(_, ref) {
   const pointLeaveHandlerRef = useRef(null);
 
   useEffect(() => {
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    if (!token) {
+      containerRef.current.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:#e63947;font-size:14px;padding:24px;text-align:center">' +
+        'Mapbox token not configured. Set NEXT_PUBLIC_MAPBOX_TOKEN in your environment variables.</div>';
+      return;
+    }
+    mapboxgl.accessToken = token;
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
