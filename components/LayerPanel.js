@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { STATE_FIPS, STATE_ABBR } from '../lib/stateFips';
+import { STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
 
 const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, name]) => [name, abbr]));
 
@@ -24,6 +25,7 @@ export default function LayerPanel({
   lookupStatus,
   lookupLabel,
   lookupDistricts,
+  onGeographySelect,
 }) {
   const [openSections, setOpenSections] = useState({ national: true, state: false, local: false });
   const [selectedStates, setSelectedStates] = useState([]);
@@ -93,6 +95,8 @@ export default function LayerPanel({
   function addState(name) {
     setSelectedStates((prev) => prev.includes(name) ? prev : [...prev, name]);
     setStateSearch('');
+    const bbox = STATE_BBOX[name];
+    if (bbox) onGeographySelect?.(bbox);
   }
 
   function removeState(name) {
@@ -102,6 +106,8 @@ export default function LayerPanel({
   function addCity(slug) {
     setSelectedCities((prev) => prev.includes(slug) ? prev : [...prev, slug]);
     setCitySearch('');
+    const bbox = CITY_BBOX[slug];
+    if (bbox) onGeographySelect?.(bbox);
   }
 
   function removeCity(slug) {

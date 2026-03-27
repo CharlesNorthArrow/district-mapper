@@ -10,6 +10,7 @@ import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies } from '../lib/geoSuggest';
 import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/layerColors';
+import { STATE_FIPS } from '../lib/stateFips';
 
 const tourBtnStyle = {
   position: 'absolute',
@@ -51,6 +52,26 @@ export default function Home() {
     if (!uploadedData) return;
     setEnrichedPoints(assignDistricts(uploadedData.points, layerGeojson));
   }, [uploadedData, layerGeojson]);
+
+  // Auto-load the most relevant layers when upload detects geographies
+  useEffect(() => {
+    if (!geoSuggestions) return;
+    // Congressional is always useful — load it once
+    handleLayerToggle('congressional', true);
+    // State Senate for every detected state
+    if (geoSuggestions.states.length > 0) {
+      const fipsArray = geoSuggestions.states.map((s) => STATE_FIPS[s]).filter(Boolean);
+      if (fipsArray.length > 0) handleStateLayerToggle('state-senate', true, fipsArray);
+    }
+    // City Council for every detected city
+    for (const slug of geoSuggestions.cities) {
+      handleCityLayerToggle(slug, true);
+    }
+  }, [geoSuggestions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleGeographySelect(bbox) {
+    mapRef.current?.fitBounds(bbox);
+  }
 
   function getDistrictBbox(layerId, districtName) {
     const geojson = layerGeojson[layerId];
@@ -259,6 +280,7 @@ export default function Home() {
           lookupStatus={lookupStatus}
           lookupLabel={lookupLabel}
           lookupDistricts={lookupDistricts}
+          onGeographySelect={handleGeographySelect}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
