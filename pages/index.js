@@ -341,6 +341,13 @@ export default function Home() {
               layerGeojson={layerGeojson}
               selectedDistrict={selectedDistrict}
               onDistrictSelect={handleDistrictSelect}
+              onLayerIsolate={(layerId) => {
+                if (layerId) {
+                  mapRef.current?.isolateLayer(layerId);
+                } else {
+                  mapRef.current?.showAllLayers();
+                }
+              }}
             />
           )}
         </div>

@@ -173,6 +173,25 @@ const MapView = forwardRef(function MapView(_, ref) {
       map.setFilter('uploaded-points', null);
     },
 
+    isolateLayer(layerId) {
+      const map = mapRef.current;
+      if (!map) return;
+      for (const id of addedLayers.current) {
+        const vis = id === layerId ? 'visible' : 'none';
+        if (map.getLayer(`${id}-fill`)) map.setLayoutProperty(`${id}-fill`, 'visibility', vis);
+        if (map.getLayer(`${id}-line`)) map.setLayoutProperty(`${id}-line`, 'visibility', vis);
+      }
+    },
+
+    showAllLayers() {
+      const map = mapRef.current;
+      if (!map) return;
+      for (const id of addedLayers.current) {
+        if (map.getLayer(`${id}-fill`)) map.setLayoutProperty(`${id}-fill`, 'visibility', 'visible');
+        if (map.getLayer(`${id}-line`)) map.setLayoutProperty(`${id}-line`, 'visibility', 'visible');
+      }
+    },
+
     addSearchPin(lng, lat) {
       const map = mapRef.current;
       if (!map) return;

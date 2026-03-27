@@ -29,15 +29,16 @@ export default function AnalysisPanel({
   layerGeojson,
   selectedDistrict,
   onDistrictSelect,
+  onLayerIsolate,
 }) {
-  const [selectedLayer, setSelectedLayer] = useState(null);
+  // 'overview' | null (falls back to first layer) | layerId
+  const [selectedLayer, setSelectedLayer] = useState('overview');
   const [open, setOpen] = useState(true);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const selectAllRef = useRef(null);
 
   const { points, originalRows, headers } = uploadedData;
 
-  // Detect numeric fields from headers
   const numericFields = useMemo(() => {
     return headers.filter((h) => {
       const vals = originalRows.slice(0, 20).map((r) => r[h]);
@@ -55,19 +56,18 @@ export default function AnalysisPanel({
     [activeLayers]
   );
 
-  const activeLayer = selectedLayer || sortedLayers[0] || null;
+  const isOverview = selectedLayer === 'overview';
+  const activeLayer = isOverview ? null : (selectedLayer || null);
   const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
   const unmatchedCount = activeLayer
     ? enrichedPoints.filter((p) => p[activeLayer] == null).length
     : 0;
 
-  // Count rows matching the checked districts
   const checkedRowCount = useMemo(() => {
     if (!activeLayer || checkedDistricts.size === 0) return 0;
     return enrichedPoints.filter((p) => checkedDistricts.has(p[activeLayer])).length;
   }, [enrichedPoints, activeLayer, checkedDistricts]);
 
-  // Keep the select-all checkbox indeterminate state in sync
   useMemo(() => {
     if (!selectAllRef.current || rows.length === 0) return;
     const allChecked = rows.every((r) => checkedDistricts.has(r.districtName));
@@ -80,6 +80,11 @@ export default function AnalysisPanel({
     setSelectedLayer(id);
     setCheckedDistricts(new Set());
     if (selectedDistrict) onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName);
+    if (id === 'overview') {
+      onLayerIsolate?.(null);
+    } else {
+      onLayerIsolate?.(id);
+    }
   }
 
   function toggleCheck(districtName) {
@@ -108,6 +113,7 @@ export default function AnalysisPanel({
   }
 
   function getDisplayName(layerId) {
+    if (!layerId) return '';
     if (LAYER_CONFIG[layerId]) return LAYER_CONFIG[layerId].displayName;
     if (layerId.startsWith('council-')) return `Council Districts (${layerId.replace('council-', '')})`;
     if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
@@ -125,13 +131,11 @@ export default function AnalysisPanel({
               <button
                 style={clearFilterBtn}
                 onClick={() => onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName)}
-              >
-                ✕
-              </button>
+              >✕</button>
             </span>
           )}
-          {activeLayers.length === 0 && !selectedDistrict && (
-            <span style={hint}>Enable boundary layers to analyze districts</span>
+          {activeLayers.length === 0 && (
+            <span style={hintStyle}>Enable boundary layers to analyze districts</span>
           )}
           <button style={toggleBtn} onClick={() => setOpen((o) => !o)}>
             {open ? '▼' : '▲'}
@@ -143,7 +147,24 @@ export default function AnalysisPanel({
         <div style={panelBody}>
           {activeLayers.length > 0 && (
             <>
+              {/* Tab bar */}
               <div style={layerTabs}>
+                {/* Overview tab — always first */}
+                <button
+                  style={{
+                    ...tabBtn,
+                    background: isOverview ? '#1c3557' : '#edf2f7',
+                    color: isOverview ? '#fff' : '#1c3557',
+                  }}
+                  onClick={() => handleTabClick('overview')}
+                >
+                  <span>Overview</span>
+                  <span style={{ fontSize: 9, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: isOverview ? 0.8 : 0.65, marginTop: 1, display: 'block' }}>
+                    All layers
+                  </span>
+                </button>
+
+                {/* Per-layer tabs */}
                 {sortedLayers.map((id) => {
                   const scope = getScope(id);
                   const colors = SCOPE_COLORS[scope];
@@ -159,10 +180,7 @@ export default function AnalysisPanel({
                       onClick={() => handleTabClick(id)}
                     >
                       <span>{getDisplayName(id)}</span>
-                      <span style={{
-                        fontSize: 9, letterSpacing: '0.05em', textTransform: 'uppercase',
-                        opacity: isActive ? 0.8 : 0.65, marginTop: 1, display: 'block',
-                      }}>
+                      <span style={{ fontSize: 9, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: isActive ? 0.8 : 0.65, marginTop: 1, display: 'block' }}>
                         {SCOPE_LABELS[scope]}
                       </span>
                     </button>
@@ -170,104 +188,139 @@ export default function AnalysisPanel({
                 })}
               </div>
 
-              {/* Contextual download bar — visible when districts are checked */}
-              {checkedDistricts.size > 0 && (
-                <div style={downloadBar}>
-                  <span style={downloadBarLabel}>
-                    {checkedDistricts.size} {checkedDistricts.size === 1 ? 'district' : 'districts'} selected
-                    &nbsp;·&nbsp;
-                    {checkedRowCount.toLocaleString()} rows
-                  </span>
-                  <button style={downloadBarBtn} onClick={handleFilteredDownload}>
-                    Download CSV
-                  </button>
-                  <button style={downloadBarClear} onClick={() => setCheckedDistricts(new Set())}>
-                    Clear
-                  </button>
+              {/* ── OVERVIEW ── */}
+              {isOverview && (
+                <div style={overviewScroll}>
+                  {sortedLayers.map((layerId) => {
+                    const scope = getScope(layerId);
+                    const colors = SCOPE_COLORS[scope];
+                    const layerRows = layerSummary[layerId] || [];
+                    const matched = layerRows.reduce((s, r) => s + r.count, 0);
+                    const unmatched = points.length - matched;
+                    const topMax = layerRows[0]?.count || 1;
+                    return (
+                      <div key={layerId} style={{ ...overviewCard, borderTopColor: colors.active }}>
+                        <div style={overviewCardHead}>
+                          <span style={{ ...overviewScopePill, background: colors.inactive, color: colors.inactiveText }}>
+                            {SCOPE_LABELS[scope]}
+                          </span>
+                          <span style={overviewLayerName}>{getDisplayName(layerId)}</span>
+                        </div>
+                        <div style={overviewStats}>
+                          <span>{layerRows.length} districts</span>
+                          <span style={overviewDot}>·</span>
+                          <span>{matched.toLocaleString()} pts matched</span>
+                          {unmatched > 0 && (
+                            <>
+                              <span style={overviewDot}>·</span>
+                              <span style={{ color: 'var(--red)' }}>{unmatched.toLocaleString()} unmatched</span>
+                            </>
+                          )}
+                        </div>
+                        <div style={overviewTopList}>
+                          {layerRows.slice(0, 3).map((r, i) => (
+                            <div key={r.districtName} style={overviewTopRow}>
+                              <span style={overviewRank}>#{i + 1}</span>
+                              <div style={overviewBarTrack}>
+                                <div style={{ ...overviewBar, width: `${(r.count / topMax) * 100}%`, background: colors.active }} />
+                              </div>
+                              <span style={overviewDistName}>{r.districtName}</span>
+                              <span style={overviewDistCount}>{r.count.toLocaleString()}</span>
+                              <span style={overviewDistPct}>{r.pct}%</span>
+                            </div>
+                          ))}
+                          {layerRows.length === 0 && (
+                            <span style={{ fontSize: 11, color: '#7a8fa6', fontStyle: 'italic' }}>No matches yet</span>
+                          )}
+                        </div>
+                        <button style={overviewViewBtn} onClick={() => handleTabClick(layerId)}>
+                          View details →
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
-              <div style={tableWrap}>
-                <table style={table}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
-                        <input
-                          ref={selectAllRef}
-                          type="checkbox"
-                          onChange={toggleSelectAll}
-                          title="Select all districts"
-                        />
-                      </th>
-                      <th style={th}>District</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Points</th>
-                      <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
-                      {numericFields.slice(0, 3).map((f) => (
-                        <th key={f} style={{ ...th, textAlign: 'right' }}>Avg {f}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, i) => {
-                      const isMapFiltered =
-                        selectedDistrict?.layerId === activeLayer &&
-                        selectedDistrict?.districtName === row.districtName;
-                      const isChecked = checkedDistricts.has(row.districtName);
-                      return (
-                        <tr
-                          key={i}
-                          style={{
-                            ...(i % 2 === 0 ? {} : { background: '#f7fafc' }),
-                            ...(isMapFiltered ? mapFilteredRow : {}),
-                            ...(isChecked ? checkedRow : {}),
-                          }}
-                        >
-                          <td
-                            style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleCheck(row.districtName)}
-                            />
-                          </td>
-                          <td
-                            style={{ ...td, cursor: 'pointer' }}
-                            onClick={() => onDistrictSelect(activeLayer, row.districtName)}
-                          >
-                            {row.districtName}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
-                          <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
+              {/* ── LAYER DETAIL ── */}
+              {!isOverview && activeLayer && (
+                <>
+                  {checkedDistricts.size > 0 && (
+                    <div style={downloadBar}>
+                      <span style={downloadBarLabel}>
+                        {checkedDistricts.size} {checkedDistricts.size === 1 ? 'district' : 'districts'} selected
+                        &nbsp;·&nbsp;
+                        {checkedRowCount.toLocaleString()} rows
+                      </span>
+                      <button style={downloadBarBtn} onClick={handleFilteredDownload}>Download CSV</button>
+                      <button style={downloadBarClear} onClick={() => setCheckedDistricts(new Set())}>Clear</button>
+                    </div>
+                  )}
+
+                  <div style={tableWrap}>
+                    <table style={table}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
+                            <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
+                          </th>
+                          <th style={th}>District</th>
+                          <th style={{ ...th, textAlign: 'right' }}>Points</th>
+                          <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
                           {numericFields.slice(0, 3).map((f) => (
-                            <td key={f} style={{ ...td, textAlign: 'right' }}>
-                              {row.fieldAverages[f] !== undefined
-                                ? row.fieldAverages[f].toFixed(2)
-                                : '—'}
-                            </td>
+                            <th key={f} style={{ ...th, textAlign: 'right' }}>Avg {f}</th>
                           ))}
                         </tr>
-                      );
-                    })}
-                    {unmatchedCount > 0 && (
-                      <tr style={{ background: '#fff5f5' }}>
-                        <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
-                        <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
-                        <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
-                          {unmatchedCount.toLocaleString()}
-                        </td>
-                        <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
-                          {((unmatchedCount / points.length) * 100).toFixed(1)}%
-                        </td>
-                        {numericFields.slice(0, 3).map((f) => (
-                          <td key={f} style={{ ...td, textAlign: 'right' }}>—</td>
-                        ))}
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, i) => {
+                          const isMapFiltered =
+                            selectedDistrict?.layerId === activeLayer &&
+                            selectedDistrict?.districtName === row.districtName;
+                          const isChecked = checkedDistricts.has(row.districtName);
+                          return (
+                            <tr
+                              key={i}
+                              style={{
+                                ...(i % 2 === 0 ? {} : { background: '#f7fafc' }),
+                                ...(isMapFiltered ? mapFilteredRow : {}),
+                                ...(isChecked ? checkedRow : {}),
+                              }}
+                            >
+                              <td style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }} onClick={(e) => e.stopPropagation()}>
+                                <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
+                              </td>
+                              <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeLayer, row.districtName)}>
+                                {row.districtName}
+                              </td>
+                              <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
+                              {numericFields.slice(0, 3).map((f) => (
+                                <td key={f} style={{ ...td, textAlign: 'right' }}>
+                                  {row.fieldAverages[f] !== undefined ? row.fieldAverages[f].toFixed(2) : '—'}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                        {unmatchedCount > 0 && (
+                          <tr style={{ background: '#fff5f5' }}>
+                            <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
+                            <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
+                            <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
+                            <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
+                              {((unmatchedCount / points.length) * 100).toFixed(1)}%
+                            </td>
+                            {numericFields.slice(0, 3).map((f) => (
+                              <td key={f} style={{ ...td, textAlign: 'right' }}>—</td>
+                            ))}
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </>
           )}
 
@@ -286,89 +339,96 @@ export default function AnalysisPanel({
 }
 
 const panel = {
-  position: 'absolute',
-  bottom: 0, left: 0, right: 0,
-  background: '#fff',
-  borderTop: '2px solid var(--dark-navy)',
+  position: 'absolute', bottom: 0, left: 0, right: 0,
+  background: '#fff', borderTop: '2px solid var(--dark-navy)',
   display: 'flex', flexDirection: 'column',
-  transition: 'height 0.25s ease',
-  zIndex: 20,
-  overflow: 'hidden',
+  transition: 'height 0.25s ease', zIndex: 20, overflow: 'hidden',
 };
 const panelHeader = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '8px 16px',
-  borderBottom: '1px solid #dde3ea',
-  flexShrink: 0,
+  padding: '8px 16px', borderBottom: '1px solid #dde3ea', flexShrink: 0,
 };
-const panelTitle = {
-  fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--dark-navy)',
-};
-const hint = { fontSize: 12, color: '#7a8fa6' };
-const toggleBtn = {
-  background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6',
-};
-const panelBody = {
-  flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-};
-const layerTabs = {
-  display: 'flex', gap: 4, padding: '8px 12px', flexShrink: 0, flexWrap: 'wrap',
-};
+const panelTitle = { fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--dark-navy)' };
+const hintStyle = { fontSize: 12, color: '#7a8fa6' };
+const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
+const panelBody = { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' };
+const layerTabs = { display: 'flex', gap: 4, padding: '8px 12px', flexShrink: 0, flexWrap: 'wrap' };
 const tabBtn = {
   padding: '4px 10px', border: 'none', borderRadius: 3,
   fontSize: 11, fontWeight: 600, cursor: 'pointer',
-  display: 'flex', flexDirection: 'column', alignItems: 'center',
-  lineHeight: 1.3,
+  display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.3,
 };
 const downloadBar = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  padding: '5px 12px',
-  background: '#fefce8',
-  borderBottom: '1px solid #fde68a',
-  flexShrink: 0,
+  display: 'flex', alignItems: 'center', gap: 10, padding: '5px 12px',
+  background: '#fefce8', borderBottom: '1px solid #fde68a', flexShrink: 0,
 };
-const downloadBarLabel = {
-  fontSize: 12, color: '#92400e', flex: 1,
-};
+const downloadBarLabel = { fontSize: 12, color: '#92400e', flex: 1 };
 const downloadBarBtn = {
-  padding: '3px 10px',
-  background: 'var(--dark-navy)', color: '#fff',
-  border: 'none', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+  padding: '3px 10px', background: 'var(--dark-navy)', color: '#fff',
+  border: 'none', borderRadius: 3, fontSize: 11, fontWeight: 600, cursor: 'pointer',
 };
 const downloadBarClear = {
-  background: 'none', border: 'none',
-  fontSize: 11, color: '#92400e', cursor: 'pointer', textDecoration: 'underline',
+  background: 'none', border: 'none', fontSize: 11, color: '#92400e',
+  cursor: 'pointer', textDecoration: 'underline',
 };
-const tableWrap = {
-  flex: 1, overflowY: 'auto', padding: '0 12px',
-};
-const table = {
-  width: '100%', borderCollapse: 'collapse', fontSize: 12,
-};
+const tableWrap = { flex: 1, overflowY: 'auto', padding: '0 12px' };
+const table = { width: '100%', borderCollapse: 'collapse', fontSize: 12 };
 const th = {
-  padding: '5px 8px', background: '#f0f4f8',
-  borderBottom: '1px solid #dde3ea',
-  textAlign: 'left', fontWeight: 600, color: 'var(--dark-navy)',
-  position: 'sticky', top: 0,
+  padding: '5px 8px', background: '#f0f4f8', borderBottom: '1px solid #dde3ea',
+  textAlign: 'left', fontWeight: 600, color: 'var(--dark-navy)', position: 'sticky', top: 0,
 };
-const td = {
-  padding: '4px 8px', borderBottom: '1px solid #f0f4f8', fontSize: 12,
-};
-const mapFilteredRow = {
-  background: '#e8f0fe',
-  boxShadow: 'inset 3px 0 0 var(--mid-blue)',
-};
-const checkedRow = {
-  background: '#fefce8',
-};
+const td = { padding: '4px 8px', borderBottom: '1px solid #f0f4f8', fontSize: 12 };
+const mapFilteredRow = { background: '#e8f0fe', boxShadow: 'inset 3px 0 0 var(--mid-blue)' };
+const checkedRow = { background: '#fefce8' };
 const filterBadge = {
   display: 'flex', alignItems: 'center', gap: 4,
-  fontSize: 11, fontWeight: 600,
-  background: '#e8f0fe', color: 'var(--mid-blue)',
+  fontSize: 11, fontWeight: 600, background: '#e8f0fe', color: 'var(--mid-blue)',
   borderRadius: 3, padding: '2px 6px',
 };
 const clearFilterBtn = {
   background: 'none', border: 'none', cursor: 'pointer',
   fontSize: 10, color: 'var(--mid-blue)', padding: 0, lineHeight: 1,
+};
+
+// Overview styles
+const overviewScroll = {
+  flex: 1, display: 'flex', flexDirection: 'row', gap: 10,
+  padding: '8px 12px', overflowX: 'auto', overflowY: 'hidden', alignItems: 'flex-start',
+};
+const overviewCard = {
+  minWidth: 200, maxWidth: 240, flex: '0 0 auto',
+  border: '1px solid #dde3ea', borderTop: '3px solid #ccc',
+  borderRadius: 4, padding: '10px 12px',
+  display: 'flex', flexDirection: 'column', gap: 6,
+  background: '#fff',
+};
+const overviewCardHead = { display: 'flex', flexDirection: 'column', gap: 3 };
+const overviewScopePill = {
+  display: 'inline-block', alignSelf: 'flex-start',
+  fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+  padding: '2px 6px', borderRadius: 10,
+};
+const overviewLayerName = { fontSize: 12, fontWeight: 700, color: '#1c3557', lineHeight: 1.3 };
+const overviewStats = {
+  display: 'flex', flexWrap: 'wrap', gap: 3,
+  fontSize: 11, color: '#7a8fa6',
+};
+const overviewDot = { color: '#c5d0da' };
+const overviewTopList = { display: 'flex', flexDirection: 'column', gap: 4 };
+const overviewTopRow = {
+  display: 'grid',
+  gridTemplateColumns: '14px 40px 1fr auto auto',
+  alignItems: 'center', gap: 4,
+};
+const overviewRank = { fontSize: 10, color: '#a0aec0', textAlign: 'right' };
+const overviewBarTrack = { height: 4, background: '#edf2f7', borderRadius: 2, overflow: 'hidden' };
+const overviewBar = { height: '100%', borderRadius: 2, transition: 'width 0.3s ease' };
+const overviewDistName = { fontSize: 11, color: '#1c3557', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const overviewDistCount = { fontSize: 11, fontWeight: 600, color: '#1c3557', textAlign: 'right', whiteSpace: 'nowrap' };
+const overviewDistPct = { fontSize: 10, color: '#7a8fa6', textAlign: 'right', whiteSpace: 'nowrap', minWidth: 32 };
+const overviewViewBtn = {
+  marginTop: 2, padding: '3px 0',
+  background: 'none', border: 'none',
+  fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
+  cursor: 'pointer', textAlign: 'right', alignSelf: 'flex-end',
 };
