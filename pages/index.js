@@ -278,19 +278,20 @@ export default function Home() {
       const lats = points.map((p) => p.lat);
       mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
     }
-    // Load layers chosen in the geography step
-    if (geos?.congressional) {
-      handleLayerToggle('congressional', true);
+    if (!geos) return;
+    // National layers
+    if (geos.congressional) handleLayerToggle('congressional', true);
+    if (geos['us-senate']) handleLayerToggle('us-senate', true);
+    // Per-state layers (each is an array of state names)
+    for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary']) {
+      const states = geos[layerId] ?? [];
+      if (states.length > 0) {
+        const fipsArray = states.map((s) => STATE_FIPS[s]).filter(Boolean);
+        if (fipsArray.length > 0) handleStateLayerToggle(layerId, true, fipsArray);
+      }
     }
-    if (geos?.stateSenate?.length > 0) {
-      const fipsArray = geos.stateSenate.map((s) => STATE_FIPS[s]).filter(Boolean);
-      if (fipsArray.length > 0) handleStateLayerToggle('state-senate', true, fipsArray);
-    }
-    if (geos?.stateHouse?.length > 0) {
-      const fipsArray = geos.stateHouse.map((s) => STATE_FIPS[s]).filter(Boolean);
-      if (fipsArray.length > 0) handleStateLayerToggle('state-house', true, fipsArray);
-    }
-    for (const slug of (geos?.cities ?? [])) {
+    // City council layers
+    for (const slug of (geos.cities ?? [])) {
       handleCityLayerToggle(slug, true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

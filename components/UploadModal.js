@@ -13,6 +13,30 @@ const CITY_DISPLAY = {
   boston: 'Boston', atlanta: 'Atlanta', dc: 'Washington, DC',
 };
 
+// All national boundary layers, in display order
+const NATIONAL_LAYER_OPTIONS = [
+  { id: 'congressional',  label: 'Congressional Districts',   sub: 'All 435 US districts',       defaultOn: true  },
+  { id: 'us-senate',      label: 'US Senate (States)',        sub: '50 states as districts',     defaultOn: false },
+];
+
+// All per-state boundary layers, in display order
+const STATE_LAYER_OPTIONS = [
+  { id: 'state-senate',      label: 'State Senate Districts',        defaultOn: true  },
+  { id: 'state-house',       label: 'State House Districts',         defaultOn: false },
+  { id: 'school-unified',    label: 'Unified School Districts',      defaultOn: false },
+  { id: 'school-elementary', label: 'Elementary School Districts',   defaultOn: false },
+  { id: 'school-secondary',  label: 'Secondary School Districts',    defaultOn: false },
+];
+
+function buildDefaultChecks(suggestions) {
+  const checks = { cities: new Set(suggestions.cities) };
+  for (const { id, defaultOn } of NATIONAL_LAYER_OPTIONS) checks[id] = defaultOn;
+  for (const { id, defaultOn } of STATE_LAYER_OPTIONS) {
+    checks[id] = defaultOn ? new Set(suggestions.states) : new Set();
+  }
+  return checks;
+}
+
 // Default enabled state per address role
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
 const ROLE_LABELS = { street: 'Street / Address', city: 'City', county: 'County', state: 'State', zip: 'ZIP / Postal' };
@@ -41,12 +65,8 @@ export default function UploadModal({ onClose, onUploadComplete }) {
   // Geography step
   const [pendingData, setPendingData] = useState(null);    // { points, rows, headers }
   const [geoSuggestions, setGeoSuggestions] = useState(null);
-  const [geoChecks, setGeoChecks] = useState({
-    congressional: true,
-    stateSenate: new Set(),
-    stateHouse: new Set(),
-    cities: new Set(),
-  });
+  // geoChecks: national layers are booleans; per-state layers are Sets of state names; cities is a Set of slugs
+  const [geoChecks, setGeoChecks] = useState(() => buildDefaultChecks({ states: [], cities: [] }));
 
   const fileRef = useRef();
 
@@ -133,28 +153,19 @@ export default function UploadModal({ onClose, onUploadComplete }) {
     const suggestions = suggestGeographies(resolvedPoints);
     setPendingData({ points: resolvedPoints, rows: resolvedRows, headers: resolvedHeaders });
     setGeoSuggestions(suggestions);
-    setGeoChecks({
-      congressional: true,
-      stateSenate: new Set(suggestions.states),
-      stateHouse: new Set(),
-      cities: new Set(suggestions.cities),
-    });
+    setGeoChecks(buildDefaultChecks(suggestions));
     setStep('geography');
   }
 
-  function toggleSenate(state) {
-    setGeoChecks((prev) => {
-      const s = new Set(prev.stateSenate);
-      s.has(state) ? s.delete(state) : s.add(state);
-      return { ...prev, stateSenate: s };
-    });
+  function toggleNational(layerId) {
+    setGeoChecks((prev) => ({ ...prev, [layerId]: !prev[layerId] }));
   }
 
-  function toggleHouse(state) {
+  function toggleStateLayer(layerId, state) {
     setGeoChecks((prev) => {
-      const s = new Set(prev.stateHouse);
+      const s = new Set(prev[layerId]);
       s.has(state) ? s.delete(state) : s.add(state);
-      return { ...prev, stateHouse: s };
+      return { ...prev, [layerId]: s };
     });
   }
 
@@ -166,27 +177,22 @@ export default function UploadModal({ onClose, onUploadComplete }) {
     });
   }
 
+  function buildGeos() {
+    const geos = { cities: [...geoChecks.cities] };
+    for (const { id } of NATIONAL_LAYER_OPTIONS) geos[id] = geoChecks[id];
+    for (const { id } of STATE_LAYER_OPTIONS) geos[id] = [...geoChecks[id]];
+    return geos;
+  }
+
   function handleStartAnalysis() {
-    onUploadComplete(
-      pendingData.points,
-      pendingData.rows,
-      pendingData.headers,
-      {
-        congressional: geoChecks.congressional,
-        stateSenate: [...geoChecks.stateSenate],
-        stateHouse: [...geoChecks.stateHouse],
-        cities: [...geoChecks.cities],
-      }
-    );
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, buildGeos());
   }
 
   function handleSkipGeo() {
-    onUploadComplete(
-      pendingData.points,
-      pendingData.rows,
-      pendingData.headers,
-      { congressional: false, stateSenate: [], stateHouse: [], cities: [] }
-    );
+    const empty = { cities: [] };
+    for (const { id } of NATIONAL_LAYER_OPTIONS) empty[id] = false;
+    for (const { id } of STATE_LAYER_OPTIONS) empty[id] = [];
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, empty);
   }
 
   async function handleConfirm() {
@@ -485,64 +491,63 @@ export default function UploadModal({ onClose, onUploadComplete }) {
             </p>
 
             <div style={geoList}>
-              {/* Congressional Districts — always offered */}
-              <label style={geoRow}>
-                <input
-                  type="checkbox"
-                  checked={geoChecks.congressional}
-                  onChange={(e) => setGeoChecks((prev) => ({ ...prev, congressional: e.target.checked }))}
-                />
-                <div>
-                  <div style={geoItemLabel}>Congressional Districts</div>
-                  <div style={geoItemSub}>National — all 435 US districts</div>
-                </div>
-              </label>
+              {/* National layers */}
+              <div style={sectionDivider}>National</div>
+              {NATIONAL_LAYER_OPTIONS.map((layer, i) => (
+                <label
+                  key={layer.id}
+                  style={{ ...geoRow, borderBottom: i < NATIONAL_LAYER_OPTIONS.length - 1 ? '1px solid #f0f4f8' : 'none' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={geoChecks[layer.id]}
+                    onChange={() => toggleNational(layer.id)}
+                  />
+                  <div>
+                    <div style={geoItemLabel}>{layer.label}</div>
+                    <div style={geoItemSub}>{layer.sub}</div>
+                  </div>
+                </label>
+              ))}
 
-              {/* State legislative layers */}
-              {geoSuggestions?.states.length > 0 && (
-                <>
-                  <div style={sectionDivider}>State Legislative Districts</div>
-                  {geoSuggestions.states.map((state) => (
-                    <div key={state} style={stateRow}>
-                      <span style={stateName}>{state}</span>
-                      <label style={checkLabel}>
-                        <input
-                          type="checkbox"
-                          checked={geoChecks.stateSenate.has(state)}
-                          onChange={() => toggleSenate(state)}
-                        />
-                        Senate
-                      </label>
-                      <label style={checkLabel}>
-                        <input
-                          type="checkbox"
-                          checked={geoChecks.stateHouse.has(state)}
-                          onChange={() => toggleHouse(state)}
-                        />
-                        House
-                      </label>
-                    </div>
+              {/* Per-state layers — one section per detected state */}
+              {geoSuggestions?.states.map((state) => (
+                <div key={state}>
+                  <div style={sectionDivider}>{state}</div>
+                  {STATE_LAYER_OPTIONS.map((layer, i) => (
+                    <label
+                      key={layer.id}
+                      style={{ ...geoRow, borderBottom: i < STATE_LAYER_OPTIONS.length - 1 ? '1px solid #f0f4f8' : 'none' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={geoChecks[layer.id].has(state)}
+                        onChange={() => toggleStateLayer(layer.id, state)}
+                      />
+                      <div style={geoItemLabel}>{layer.label}</div>
+                    </label>
                   ))}
-                </>
-              )}
+                </div>
+              ))}
 
               {/* City council layers */}
               {geoSuggestions?.cities.length > 0 && (
-                <>
+                <div>
                   <div style={sectionDivider}>City Council Districts</div>
-                  {geoSuggestions.cities.map((slug) => (
-                    <label key={slug} style={{ ...geoRow, borderBottom: 'none' }}>
+                  {geoSuggestions.cities.map((slug, i) => (
+                    <label
+                      key={slug}
+                      style={{ ...geoRow, borderBottom: i < geoSuggestions.cities.length - 1 ? '1px solid #f0f4f8' : 'none' }}
+                    >
                       <input
                         type="checkbox"
                         checked={geoChecks.cities.has(slug)}
                         onChange={() => toggleCity(slug)}
                       />
-                      <div>
-                        <div style={geoItemLabel}>{CITY_DISPLAY[slug] || slug}</div>
-                      </div>
+                      <div style={geoItemLabel}>{CITY_DISPLAY[slug] || slug}</div>
                     </label>
                   ))}
-                </>
+                </div>
               )}
             </div>
 
@@ -626,14 +631,4 @@ const sectionDivider = {
   textTransform: 'uppercase', letterSpacing: '0.05em',
   padding: '7px 14px 5px', background: '#f8fafc',
   borderBottom: '1px solid #f0f4f8',
-};
-const stateRow = {
-  display: 'flex', alignItems: 'center',
-  padding: '9px 14px', gap: 16,
-  borderBottom: '1px solid #f0f4f8', background: '#fff',
-};
-const stateName = { fontSize: 13, color: '#1c3557', flex: 1, fontWeight: 500 };
-const checkLabel = {
-  display: 'flex', alignItems: 'center', gap: 5,
-  fontSize: 13, cursor: 'pointer', color: '#4a5568', whiteSpace: 'nowrap',
 };
