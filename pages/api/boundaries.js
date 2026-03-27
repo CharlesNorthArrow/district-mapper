@@ -50,7 +50,7 @@ export default async function handler(req, res) {
   const url = `${config.endpoint}/query?${params}`;
 
   try {
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(45000) });
     const text = await upstream.text();
 
     let geojson;
