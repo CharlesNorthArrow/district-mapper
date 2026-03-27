@@ -54,22 +54,6 @@ export default function Home() {
     setEnrichedPoints(assignDistricts(uploadedData.points, layerGeojson));
   }, [uploadedData, layerGeojson]);
 
-  // Auto-load the most relevant layers when upload detects geographies
-  useEffect(() => {
-    if (!geoSuggestions) return;
-    // Congressional is always useful — load it once
-    handleLayerToggle('congressional', true);
-    // State Senate for every detected state
-    if (geoSuggestions.states.length > 0) {
-      const fipsArray = geoSuggestions.states.map((s) => STATE_FIPS[s]).filter(Boolean);
-      if (fipsArray.length > 0) handleStateLayerToggle('state-senate', true, fipsArray);
-    }
-    // City Council for every detected city
-    for (const slug of geoSuggestions.cities) {
-      handleCityLayerToggle(slug, true);
-    }
-  }, [geoSuggestions]); // eslint-disable-line react-hooks/exhaustive-deps
-
   function handleGeographySelect(bbox) {
     mapRef.current?.fitBounds(bbox);
   }
@@ -283,9 +267,10 @@ export default function Home() {
     setLayerColors((prev) => ({ ...prev, [layerId]: color }));
   }, []);
 
-  const handleUploadComplete = useCallback((points, originalRows, headers) => {
+  const handleUploadComplete = useCallback((points, originalRows, headers, geos) => {
     setUploadedData({ points, originalRows, headers });
     setShowUploadModal(false);
+    // Pass suggestions to LayerPanel so its state/city selectors reflect what was detected
     setGeoSuggestions(suggestGeographies(points));
     mapRef.current?.addPointLayer(points);
     if (points.length > 0) {
@@ -293,7 +278,22 @@ export default function Home() {
       const lats = points.map((p) => p.lat);
       mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
     }
-  }, []);
+    // Load layers chosen in the geography step
+    if (geos?.congressional) {
+      handleLayerToggle('congressional', true);
+    }
+    if (geos?.stateSenate?.length > 0) {
+      const fipsArray = geos.stateSenate.map((s) => STATE_FIPS[s]).filter(Boolean);
+      if (fipsArray.length > 0) handleStateLayerToggle('state-senate', true, fipsArray);
+    }
+    if (geos?.stateHouse?.length > 0) {
+      const fipsArray = geos.stateHouse.map((s) => STATE_FIPS[s]).filter(Boolean);
+      if (fipsArray.length > 0) handleStateLayerToggle('state-house', true, fipsArray);
+    }
+    for (const slug of (geos?.cities ?? [])) {
+      handleCityLayerToggle(slug, true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
