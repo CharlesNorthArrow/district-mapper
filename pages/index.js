@@ -41,12 +41,22 @@ export default function Home() {
     if (selectedDistrict?.layerId === layerId && selectedDistrict?.districtName === districtName) {
       setSelectedDistrict(null);
       mapRef.current?.clearPointFilter();
+      // Zoom back to all points
+      if (uploadedData?.points.length > 0) {
+        const lngs = uploadedData.points.map((p) => p.lng);
+        const lats = uploadedData.points.map((p) => p.lat);
+        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+      }
     } else {
-      const indices = enrichedPoints
-        .filter((p) => p[layerId] === districtName)
-        .map((p) => p._rowIndex);
+      const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
       setSelectedDistrict({ layerId, districtName });
-      mapRef.current?.filterPoints(indices);
+      mapRef.current?.filterPoints(matching.map((p) => p._rowIndex));
+      // Zoom to the matching points
+      if (matching.length > 0) {
+        const lngs = matching.map((p) => p.lng);
+        const lats = matching.map((p) => p.lat);
+        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+      }
     }
   }
 
