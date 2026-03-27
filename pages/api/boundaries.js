@@ -29,6 +29,9 @@ export default async function handler(req, res) {
   let where;
   if (config.queryMode === 'national') {
     where = `${config.districtField} IS NOT NULL`;
+    if (config.whereExtra) {
+      where += ` AND (${config.whereExtra})`;
+    }
   } else {
     // byState — stateField is either STATE (TIGERweb) or STATEFP (Living Atlas)
     where = `${config.stateField}='${stateFips}'`;
