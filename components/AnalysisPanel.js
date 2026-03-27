@@ -4,6 +4,24 @@ import { buildFilteredCSV, downloadCSV } from '../lib/exportHelpers';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import ExportControls from './ExportControls';
 
+const NATIONAL_IDS = new Set(['congressional', 'us-senate']);
+
+function getScope(layerId) {
+  if (NATIONAL_IDS.has(layerId)) return 'national';
+  if (layerId.startsWith('state-') || layerId.startsWith('school-')) return 'state';
+  if (layerId.startsWith('council-')) return 'local';
+  return 'custom';
+}
+
+const SCOPE_ORDER = { national: 0, state: 1, local: 2, custom: 3 };
+const SCOPE_LABELS = { national: 'National', state: 'State', local: 'Local', custom: 'Custom' };
+const SCOPE_COLORS = {
+  national: { active: '#1c3557', inactive: '#e8edf2', activeText: '#fff', inactiveText: '#1c3557' },
+  state:    { active: '#467c9d', inactive: '#deeaf3', activeText: '#fff', inactiveText: '#2c5a75' },
+  local:    { active: '#047857', inactive: '#d9f0e8', activeText: '#fff', inactiveText: '#065f46' },
+  custom:   { active: '#6a4c93', inactive: '#ece8f5', activeText: '#fff', inactiveText: '#4c3068' },
+};
+
 export default function AnalysisPanel({
   uploadedData,
   enrichedPoints,
@@ -32,7 +50,12 @@ export default function AnalysisPanel({
     return summarizeByLayer(enrichedPoints, activeLayers, numericFields);
   }, [enrichedPoints, activeLayers, numericFields]);
 
-  const activeLayer = selectedLayer || activeLayers[0] || null;
+  const sortedLayers = useMemo(
+    () => [...activeLayers].sort((a, b) => (SCOPE_ORDER[getScope(a)] ?? 99) - (SCOPE_ORDER[getScope(b)] ?? 99)),
+    [activeLayers]
+  );
+
+  const activeLayer = selectedLayer || sortedLayers[0] || null;
   const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
   const unmatchedCount = activeLayer
     ? enrichedPoints.filter((p) => p[activeLayer] == null).length
@@ -121,19 +144,30 @@ export default function AnalysisPanel({
           {activeLayers.length > 0 && (
             <>
               <div style={layerTabs}>
-                {activeLayers.map((id) => (
-                  <button
-                    key={id}
-                    style={{
-                      ...tabBtn,
-                      background: activeLayer === id ? 'var(--dark-navy)' : '#edf2f7',
-                      color: activeLayer === id ? '#fff' : 'var(--dark-navy)',
-                    }}
-                    onClick={() => handleTabClick(id)}
-                  >
-                    {getDisplayName(id)}
-                  </button>
-                ))}
+                {sortedLayers.map((id) => {
+                  const scope = getScope(id);
+                  const colors = SCOPE_COLORS[scope];
+                  const isActive = activeLayer === id;
+                  return (
+                    <button
+                      key={id}
+                      style={{
+                        ...tabBtn,
+                        background: isActive ? colors.active : colors.inactive,
+                        color: isActive ? colors.activeText : colors.inactiveText,
+                      }}
+                      onClick={() => handleTabClick(id)}
+                    >
+                      <span>{getDisplayName(id)}</span>
+                      <span style={{
+                        fontSize: 9, letterSpacing: '0.05em', textTransform: 'uppercase',
+                        opacity: isActive ? 0.8 : 0.65, marginTop: 1, display: 'block',
+                      }}>
+                        {SCOPE_LABELS[scope]}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Contextual download bar — visible when districts are checked */}
@@ -283,6 +317,8 @@ const layerTabs = {
 const tabBtn = {
   padding: '4px 10px', border: 'none', borderRadius: 3,
   fontSize: 11, fontWeight: 600, cursor: 'pointer',
+  display: 'flex', flexDirection: 'column', alignItems: 'center',
+  lineHeight: 1.3,
 };
 const downloadBar = {
   display: 'flex', alignItems: 'center', gap: 10,
