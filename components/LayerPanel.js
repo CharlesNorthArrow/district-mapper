@@ -1,24 +1,17 @@
 import { useState } from 'react';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
+import { STATE_FIPS } from '../lib/stateFips';
 
-const US_STATES = [
-  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut',
-  'Delaware','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa',
-  'Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan',
-  'Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire',
-  'New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio',
-  'Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota',
-  'Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia',
-  'Wisconsin','Wyoming','District of Columbia',
-];
-
+const US_STATES = Object.keys(STATE_FIPS).sort();
 const NATIONAL_LAYERS = ['congressional', 'us-senate'];
 const STATE_LAYERS = ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary'];
 
 export default function LayerPanel({
   activeLayers,
+  loadingLayer,
   onLayerToggle,
+  onStateLayerToggle,
   onCityLayerToggle,
   onCustomLayer,
   onUploadClick,
@@ -34,12 +27,10 @@ export default function LayerPanel({
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  function handleLayerCheck(layerId, checked) {
-    onLayerToggle(layerId, checked);
-  }
-
-  function handleCityCheck(citySlug, checked) {
-    onCityLayerToggle(citySlug, checked);
+  function handleStateLayerCheck(layerId, checked) {
+    if (!selectedState) return;
+    const fips = STATE_FIPS[selectedState];
+    onStateLayerToggle(layerId, checked, fips);
   }
 
   function handleCustomFile(e) {
@@ -70,10 +61,27 @@ export default function LayerPanel({
     c.name.toLowerCase().includes(citySearch.toLowerCase())
   );
 
+  function LayerRow({ layerId, label, onToggle }) {
+    const isActive = activeLayers.includes(layerId);
+    const isLoading = loadingLayer === layerId;
+    return (
+      <label style={styles.layerRow}>
+        <input
+          type="checkbox"
+          checked={isActive}
+          disabled={isLoading}
+          onChange={(e) => onToggle(layerId, e.target.checked)}
+        />
+        <span style={{ fontSize: 13 }}>{label}</span>
+        {isLoading && <span style={styles.spinner}>↻</span>}
+      </label>
+    );
+  }
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
-        <img src="/North_Arrow_logo.svg" alt="North Arrow" style={styles.logo} />
+        <img src="/North_Arrow_logo.svg" alt="North Arrow" style={styles.logo} onError={(e) => { e.target.style.display = 'none'; }} />
         <span style={styles.appName}>District Mapper</span>
       </div>
 
@@ -90,14 +98,12 @@ export default function LayerPanel({
         {openSections.national && (
           <div style={styles.sectionBody}>
             {NATIONAL_LAYERS.map((layerId) => (
-              <label key={layerId} style={styles.layerRow}>
-                <input
-                  type="checkbox"
-                  checked={activeLayers.includes(layerId)}
-                  onChange={(e) => handleLayerCheck(layerId, e.target.checked)}
-                />
-                <span>{LAYER_CONFIG[layerId].displayName}</span>
-              </label>
+              <LayerRow
+                key={layerId}
+                layerId={layerId}
+                label={LAYER_CONFIG[layerId].displayName}
+                onToggle={onLayerToggle}
+              />
             ))}
           </div>
         )}
@@ -127,19 +133,19 @@ export default function LayerPanel({
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-            {selectedState && (
+            {selectedState ? (
               <div style={{ marginTop: 8 }}>
                 {STATE_LAYERS.map((layerId) => (
-                  <label key={layerId} style={styles.layerRow}>
-                    <input
-                      type="checkbox"
-                      checked={activeLayers.includes(layerId)}
-                      onChange={(e) => handleLayerCheck(layerId, e.target.checked)}
-                    />
-                    <span style={{ fontSize: 12 }}>{LAYER_CONFIG[layerId].displayName}</span>
-                  </label>
+                  <LayerRow
+                    key={layerId}
+                    layerId={layerId}
+                    label={LAYER_CONFIG[layerId].displayName}
+                    onToggle={(id, checked) => handleStateLayerCheck(id, checked)}
+                  />
                 ))}
               </div>
+            ) : (
+              <p style={{ ...styles.hint, marginTop: 6 }}>Select a state to enable district layers</p>
             )}
           </div>
         )}
@@ -171,14 +177,11 @@ export default function LayerPanel({
               ))}
             </select>
             {selectedCity && (
-              <label style={{ ...styles.layerRow, marginTop: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={activeLayers.includes(`council-${selectedCity}`)}
-                  onChange={(e) => handleCityCheck(selectedCity, e.target.checked)}
-                />
-                <span style={{ fontSize: 12 }}>Council Districts</span>
-              </label>
+              <LayerRow
+                layerId={`council-${selectedCity}`}
+                label="Council Districts"
+                onToggle={(_, checked) => onCityLayerToggle(selectedCity, checked)}
+              />
             )}
 
             <p style={{ ...styles.hint, marginTop: 12 }}>Custom boundary (GeoJSON)</p>
@@ -214,10 +217,7 @@ const styles = {
     padding: '14px 16px 10px',
     borderBottom: '1px solid #dde3ea',
   },
-  logo: {
-    height: 28,
-    width: 'auto',
-  },
+  logo: { height: 28, width: 'auto' },
   appName: {
     fontFamily: 'Poppins, sans-serif',
     fontWeight: 700,
@@ -235,9 +235,7 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
   },
-  section: {
-    borderBottom: '1px solid #dde3ea',
-  },
+  section: { borderBottom: '1px solid #dde3ea' },
   sectionHeader: {
     width: '100%',
     display: 'flex',
@@ -253,9 +251,7 @@ const styles = {
     cursor: 'pointer',
     textAlign: 'left',
   },
-  sectionBody: {
-    padding: '4px 16px 12px',
-  },
+  sectionBody: { padding: '4px 16px 12px' },
   layerRow: {
     display: 'flex',
     alignItems: 'center',
@@ -279,9 +275,6 @@ const styles = {
     borderRadius: 3,
     padding: 2,
   },
-  hint: {
-    fontSize: 11,
-    color: '#7a8fa6',
-    marginBottom: 4,
-  },
+  hint: { fontSize: 11, color: '#7a8fa6', marginBottom: 4 },
+  spinner: { fontSize: 13, color: 'var(--mid-blue)', animation: 'spin 1s linear infinite' },
 };

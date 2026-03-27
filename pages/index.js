@@ -5,82 +5,66 @@ import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
 
+const LAYER_COLORS = {
+  congressional: '#e63947',
+  'us-senate': '#1c3557',
+  'state-senate': '#467c9d',
+  'state-house': '#a9dadc',
+  'school-unified': '#6a4c93',
+  'school-elementary': '#f4a261',
+  'school-secondary': '#2a9d8f',
+};
+
 export default function Home() {
   const mapRef = useRef(null);
   const [activeLayers, setActiveLayers] = useState([]);
-  const [uploadedData, setUploadedData] = useState(null); // { points, originalRows, headers }
+  const [uploadedData, setUploadedData] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [currentBbox, setCurrentBbox] = useState(null);
-  // layerGeojson: { [layerId]: FeatureCollection } — kept in state so AnalysisPanel can use it
   const [layerGeojson, setLayerGeojson] = useState({});
+  const [loadingLayer, setLoadingLayer] = useState(null);
 
-  const handleBboxChange = useCallback((bbox) => {
-    setCurrentBbox(bbox);
+  function removeLayer(layerId) {
+    setActiveLayers((prev) => prev.filter((id) => id !== layerId));
+    setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+    mapRef.current?.removeBoundaryLayer(layerId);
+  }
+
+  async function fetchAndAddLayer(layerId, url, color) {
+    setLoadingLayer(layerId);
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`Could not load ${layerId}: ${data.error || res.statusText}`);
+        return;
+      }
+      mapRef.current?.addBoundaryLayer(layerId, data, color);
+      setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
+      setLayerGeojson((prev) => ({ ...prev, [layerId]: data }));
+    } catch (err) {
+      alert(`Could not load ${layerId}: ${err.message}`);
+    } finally {
+      setLoadingLayer(null);
+    }
+  }
+
+  // National layers (congressional, us-senate) — no stateFips needed
+  const handleLayerToggle = useCallback(async (layerId, enabled) => {
+    if (!enabled) { removeLayer(layerId); return; }
+    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}`, LAYER_COLORS[layerId] || '#467c9d');
   }, []);
 
-  const handleLayerToggle = useCallback(async (layerId, enabled) => {
-    if (!enabled) {
-      setActiveLayers((prev) => prev.filter((id) => id !== layerId));
-      setLayerGeojson((prev) => {
-        const next = { ...prev };
-        delete next[layerId];
-        return next;
-      });
-      mapRef.current?.removeBoundaryLayer(layerId);
-      return;
-    }
+  // State layers (state-senate, state-house, school-*) — require stateFips
+  const handleStateLayerToggle = useCallback(async (layerId, enabled, stateFips) => {
+    if (!enabled) { removeLayer(layerId); return; }
+    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}&stateFips=${stateFips}`, LAYER_COLORS[layerId] || '#467c9d');
+  }, []);
 
-    // Fetch boundary GeoJSON via our proxy
-    // Fall back to contiguous US if the map hasn't fired its first bbox event yet
-    const bbox = currentBbox || '-125,24,-66,50';
-    const res = await fetch(`/api/boundaries?layer=${layerId}&bbox=${bbox}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      console.error(`Failed to load layer ${layerId}:`, err.error || res.statusText);
-      alert(`Could not load ${layerId}: ${err.error || res.statusText}`);
-      return;
-    }
-    const geojson = await res.json();
-    const layerColors = {
-      congressional: '#e63947',
-      'us-senate': '#1c3557',
-      'state-senate': '#467c9d',
-      'state-house': '#a9dadc',
-      'school-unified': '#6a4c93',
-      'school-elementary': '#f4a261',
-      'school-secondary': '#2a9d8f',
-    };
-    const color = layerColors[layerId] || '#467c9d';
-    mapRef.current?.addBoundaryLayer(layerId, geojson, color);
-    setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
-    setLayerGeojson((prev) => ({ ...prev, [layerId]: geojson }));
-  }, [currentBbox]);
-
-  const handleCityLayerToggle = useCallback(async (citySlug, enabled) => {
+  const handleCityLayerToggle = useCallback(async (citySlug, enabled, bbox) => {
     const layerId = `council-${citySlug}`;
-    if (!enabled) {
-      setActiveLayers((prev) => prev.filter((id) => id !== layerId));
-      setLayerGeojson((prev) => {
-        const next = { ...prev };
-        delete next[layerId];
-        return next;
-      });
-      mapRef.current?.removeBoundaryLayer(layerId);
-      return;
-    }
-
-    const bbox = currentBbox || '-180,-90,180,90';
-    const res = await fetch(`/api/city-councils?city=${citySlug}&bbox=${bbox}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert(`Could not load council districts for ${citySlug}: ${err.error || res.statusText}`);
-      return;
-    }
-    const geojson = await res.json();
-    mapRef.current?.addBoundaryLayer(layerId, geojson, '#e63947');
-    setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
-    setLayerGeojson((prev) => ({ ...prev, [layerId]: geojson }));
-  }, [currentBbox]);
+    if (!enabled) { removeLayer(layerId); return; }
+    await fetchAndAddLayer(layerId, `/api/city-councils?city=${citySlug}&bbox=${bbox}`, '#e63947');
+  }, []);
 
   const handleCustomLayer = useCallback((layerId, geojson) => {
     mapRef.current?.addBoundaryLayer(layerId, geojson, '#6a4c93');
@@ -95,10 +79,7 @@ export default function Home() {
     if (points.length > 0) {
       const lngs = points.map((p) => p.lng);
       const lats = points.map((p) => p.lat);
-      mapRef.current?.fitBounds([
-        Math.min(...lngs), Math.min(...lats),
-        Math.max(...lngs), Math.max(...lats),
-      ]);
+      mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
     }
   }, []);
 
@@ -114,7 +95,9 @@ export default function Home() {
       <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex' }}>
         <LayerPanel
           activeLayers={activeLayers}
+          loadingLayer={loadingLayer}
           onLayerToggle={handleLayerToggle}
+          onStateLayerToggle={handleStateLayerToggle}
           onCityLayerToggle={handleCityLayerToggle}
           onCustomLayer={handleCustomLayer}
           onUploadClick={() => setShowUploadModal(true)}
@@ -122,11 +105,7 @@ export default function Home() {
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
-          <MapView
-            ref={mapRef}
-            onBboxChange={handleBboxChange}
-          />
-
+          <MapView ref={mapRef} />
           {uploadedData && (
             <AnalysisPanel
               uploadedData={uploadedData}

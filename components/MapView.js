@@ -1,10 +1,9 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 
-const MapView = forwardRef(function MapView({ onBboxChange }, ref) {
+const MapView = forwardRef(function MapView(_, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
-  // Track which layer IDs we've added so we can clean them up
   const addedLayers = useRef(new Set());
 
   useEffect(() => {
@@ -18,19 +17,9 @@ const MapView = forwardRef(function MapView({ onBboxChange }, ref) {
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-    const emitBbox = () => {
-      const b = map.getBounds();
-      const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
-      onBboxChange(bbox);
-    };
-
-    map.on('moveend', emitBbox);
-    map.on('load', emitBbox);
-
     mapRef.current = map;
     return () => map.remove();
-  }, [onBboxChange]);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     addBoundaryLayer(id, geojson, color) {
