@@ -48,18 +48,19 @@ export default function Home() {
     }
   }
 
-  function pinAndAssignDistricts(lat, lng, label) {
+  async function pinAndAssignDistricts(lat, lng, label) {
     mapRef.current?.addSearchPin(lng, lat);
     setLookupStatus('found');
     setLookupLabel(label);
-    if (Object.keys(layerGeojson).length > 0) {
-      const [enriched] = assignDistricts([{ lat, lng, _rowIndex: 0 }], layerGeojson);
-      const districts = {};
-      for (const layerId of activeLayers) {
-        if (enriched[layerId]) districts[layerId] = enriched[layerId];
+    setLookupDistricts(null); // null = loading
+    try {
+      const res = await fetch(`/api/district-lookup?lat=${lat}&lng=${lng}`);
+      if (res.ok) {
+        setLookupDistricts(await res.json());
+      } else {
+        setLookupDistricts({});
       }
-      setLookupDistricts(districts);
-    } else {
+    } catch {
       setLookupDistricts({});
     }
   }

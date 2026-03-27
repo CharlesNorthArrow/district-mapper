@@ -165,7 +165,10 @@ export default function LayerPanel({
         {lookupStatus === 'found' && (
           <>
             <p style={styles.lookupFound}>{lookupLabel}</p>
-            {Object.keys(lookupDistricts || {}).length > 0 && (
+            {lookupDistricts === null && (
+              <p style={styles.lookupLoading}>Looking up districts…</p>
+            )}
+            {lookupDistricts !== null && Object.keys(lookupDistricts).length > 0 && (
               <div style={styles.lookupDistricts}>
                 {Object.entries(lookupDistricts).map(([layerId, name]) => (
                   <div key={layerId} style={styles.lookupDistrictRow}>
@@ -177,8 +180,8 @@ export default function LayerPanel({
                 ))}
               </div>
             )}
-            {Object.keys(lookupDistricts || {}).length === 0 && activeLayers.length > 0 && (
-              <p style={styles.lookupNoMatch}>No district match — try enabling boundary layers</p>
+            {lookupDistricts !== null && Object.keys(lookupDistricts).length === 0 && (
+              <p style={styles.lookupNoMatch}>No district matches found</p>
             )}
           </>
         )}
@@ -405,6 +408,12 @@ const styles = {
     fontWeight: 600,
     color: 'var(--dark-navy)',
     textAlign: 'right',
+  },
+  lookupLoading: {
+    fontSize: 11,
+    color: '#7a8fa6',
+    margin: '4px 0 0',
+    fontStyle: 'italic',
   },
   lookupNoMatch: {
     fontSize: 11,
