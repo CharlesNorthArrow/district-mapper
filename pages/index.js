@@ -5,6 +5,7 @@ import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
 import { assignDistricts } from '../lib/pointInDistrict';
+import { suggestGeographies } from '../lib/geoSuggest';
 
 const LAYER_COLORS = {
   congressional: '#e63947',
@@ -25,6 +26,7 @@ export default function Home() {
   const [loadingLayer, setLoadingLayer] = useState(null);
   const [enrichedPoints, setEnrichedPoints] = useState([]);
   const [selectedDistrict, setSelectedDistrict] = useState(null); // { layerId, districtName } | null
+  const [geoSuggestions, setGeoSuggestions] = useState(null); // { states, cities } | null
   const [lookupStatus, setLookupStatus] = useState('idle'); // idle | loading | found | error
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
@@ -149,6 +151,7 @@ export default function Home() {
   const handleUploadComplete = useCallback((points, originalRows, headers) => {
     setUploadedData({ points, originalRows, headers });
     setShowUploadModal(false);
+    setGeoSuggestions(suggestGeographies(points));
     mapRef.current?.addPointLayer(points);
     if (points.length > 0) {
       const lngs = points.map((p) => p.lng);
@@ -176,6 +179,7 @@ export default function Home() {
           onCustomLayer={handleCustomLayer}
           onUploadClick={() => setShowUploadModal(true)}
           hasData={!!uploadedData}
+          geoSuggestions={geoSuggestions}
           onAddressLookup={handleAddressLookup}
           onAddressSelect={handleAddressSelect}
           lookupStatus={lookupStatus}

@@ -16,6 +16,7 @@ export default function LayerPanel({
   onCustomLayer,
   onUploadClick,
   hasData,
+  geoSuggestions,
   onAddressLookup,
   onAddressSelect,
   lookupStatus,
@@ -49,6 +50,23 @@ export default function LayerPanel({
     }, 300);
     return () => clearTimeout(timer);
   }, [lookupInput]);
+
+  // React to new upload — auto-expand and pre-select detected geographies
+  useEffect(() => {
+    if (!geoSuggestions) return;
+    const updates = {};
+    if (geoSuggestions.states.length > 0) {
+      updates.state = true;
+      if (geoSuggestions.states.length === 1) setSelectedState(geoSuggestions.states[0]);
+    }
+    if (geoSuggestions.cities.length > 0) {
+      updates.local = true;
+      if (geoSuggestions.cities.length === 1) setSelectedCity(geoSuggestions.cities[0]);
+    }
+    if (Object.keys(updates).length > 0) {
+      setOpenSections((prev) => ({ ...prev, ...updates }));
+    }
+  }, [geoSuggestions]);
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -222,6 +240,25 @@ export default function LayerPanel({
         </button>
         {openSections.state && (
           <div style={styles.sectionBody}>
+            {geoSuggestions?.states.length > 0 && (
+              <div style={styles.suggestionGroup}>
+                <span style={styles.suggestionLabel}>Your data</span>
+                <div style={styles.chips}>
+                  {geoSuggestions.states.map((s) => (
+                    <button
+                      key={s}
+                      style={{
+                        ...styles.chip,
+                        ...(selectedState === s ? styles.chipActive : {}),
+                      }}
+                      onClick={() => setSelectedState(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <input
               style={styles.search}
               placeholder="Search state…"
@@ -264,6 +301,28 @@ export default function LayerPanel({
         </button>
         {openSections.local && (
           <div style={styles.sectionBody}>
+            {geoSuggestions?.cities.length > 0 && (
+              <div style={styles.suggestionGroup}>
+                <span style={styles.suggestionLabel}>Your data</span>
+                <div style={styles.chips}>
+                  {geoSuggestions.cities.map((slug) => {
+                    const name = CITY_COUNCIL_REGISTRY[slug]?.name || slug;
+                    return (
+                      <button
+                        key={slug}
+                        style={{
+                          ...styles.chip,
+                          ...(selectedCity === slug ? styles.chipActive : {}),
+                        }}
+                        onClick={() => setSelectedCity(slug)}
+                      >
+                        {name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <p style={styles.hint}>Council districts (Tier 1 cities)</p>
             <input
               style={styles.search}
@@ -478,5 +537,26 @@ const styles = {
     padding: 2,
   },
   hint: { fontSize: 11, color: '#7a8fa6', marginBottom: 4 },
+  suggestionGroup: { marginBottom: 8 },
+  suggestionLabel: {
+    fontSize: 10, fontWeight: 600, color: '#7a8fa6',
+    textTransform: 'uppercase', letterSpacing: '0.04em',
+    display: 'block', marginBottom: 4,
+  },
+  chips: { display: 'flex', flexWrap: 'wrap', gap: 4 },
+  chip: {
+    padding: '3px 8px',
+    background: '#edf2f7',
+    border: '1px solid #c5d0da',
+    borderRadius: 12,
+    fontSize: 11, fontWeight: 600,
+    color: 'var(--dark-navy)',
+    cursor: 'pointer',
+  },
+  chipActive: {
+    background: 'var(--mid-blue)',
+    borderColor: 'var(--mid-blue)',
+    color: '#fff',
+  },
   spinner: { fontSize: 13, color: 'var(--mid-blue)', animation: 'spin 1s linear infinite' },
 };
