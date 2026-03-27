@@ -1,9 +1,10 @@
 import Head from 'next/head';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import MapView from '../components/MapView';
 import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
+import { assignDistricts } from '../lib/pointInDistrict';
 
 const LAYER_COLORS = {
   congressional: '#e63947',
@@ -22,6 +23,55 @@ export default function Home() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
+  const [enrichedPoints, setEnrichedPoints] = useState([]);
+  const [selectedDistrict, setSelectedDistrict] = useState(null); // { layerId, districtName } | null
+  const [lookupStatus, setLookupStatus] = useState('idle'); // idle | loading | found | error
+  const [lookupLabel, setLookupLabel] = useState('');
+
+  // Recompute enriched points whenever upload data or loaded boundary layers change
+  useEffect(() => {
+    if (!uploadedData) return;
+    setEnrichedPoints(assignDistricts(uploadedData.points, layerGeojson));
+  }, [uploadedData, layerGeojson]);
+
+  function handleDistrictSelect(layerId, districtName) {
+    if (selectedDistrict?.layerId === layerId && selectedDistrict?.districtName === districtName) {
+      setSelectedDistrict(null);
+      mapRef.current?.clearPointFilter();
+    } else {
+      const indices = enrichedPoints
+        .filter((p) => p[layerId] === districtName)
+        .map((p) => p._rowIndex);
+      setSelectedDistrict({ layerId, districtName });
+      mapRef.current?.filterPoints(indices);
+    }
+  }
+
+  async function handleAddressLookup(address) {
+    if (!address.trim()) return;
+    setLookupStatus('loading');
+    setLookupLabel('');
+    try {
+      const res = await fetch('/api/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addresses: [address] }),
+      });
+      if (!res.ok) throw new Error('Geocoding request failed');
+      const [result] = await res.json();
+      if (!result?.lat) {
+        setLookupStatus('error');
+        setLookupLabel('Address not found');
+        return;
+      }
+      mapRef.current?.addSearchPin(result.lng, result.lat);
+      setLookupStatus('found');
+      setLookupLabel(result.address || address);
+    } catch {
+      setLookupStatus('error');
+      setLookupLabel('Geocoding failed — check your connection');
+    }
+  }
 
   function removeLayer(layerId) {
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
@@ -102,6 +152,9 @@ export default function Home() {
           onCustomLayer={handleCustomLayer}
           onUploadClick={() => setShowUploadModal(true)}
           hasData={!!uploadedData}
+          onAddressLookup={handleAddressLookup}
+          lookupStatus={lookupStatus}
+          lookupLabel={lookupLabel}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
@@ -109,8 +162,11 @@ export default function Home() {
           {uploadedData && (
             <AnalysisPanel
               uploadedData={uploadedData}
+              enrichedPoints={enrichedPoints}
               activeLayers={activeLayers}
               layerGeojson={layerGeojson}
+              selectedDistrict={selectedDistrict}
+              onDistrictSelect={handleDistrictSelect}
             />
           )}
         </div>

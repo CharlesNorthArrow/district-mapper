@@ -1,9 +1,16 @@
 import { useState, useMemo } from 'react';
-import { assignDistricts, summarizeByLayer } from '../lib/pointInDistrict';
+import { summarizeByLayer } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import ExportControls from './ExportControls';
 
-export default function AnalysisPanel({ uploadedData, activeLayers, layerGeojson }) {
+export default function AnalysisPanel({
+  uploadedData,
+  enrichedPoints,
+  activeLayers,
+  layerGeojson,
+  selectedDistrict,
+  onDistrictSelect,
+}) {
   const [selectedLayer, setSelectedLayer] = useState(null);
   const [open, setOpen] = useState(true);
 
@@ -17,12 +24,6 @@ export default function AnalysisPanel({ uploadedData, activeLayers, layerGeojson
     });
   }, [headers, originalRows]);
 
-  // Run point-in-district assignment (memoized)
-  const enrichedPoints = useMemo(() => {
-    if (Object.keys(layerGeojson).length === 0) return points;
-    return assignDistricts(points, layerGeojson);
-  }, [points, layerGeojson]);
-
   const layerSummary = useMemo(() => {
     if (activeLayers.length === 0) return {};
     return summarizeByLayer(enrichedPoints, activeLayers, numericFields);
@@ -31,6 +32,12 @@ export default function AnalysisPanel({ uploadedData, activeLayers, layerGeojson
   const activeLayer = selectedLayer || activeLayers[0] || null;
   const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
   const unmatchedCount = enrichedPoints.filter((p) => p.unmatched).length;
+
+  function handleTabClick(id) {
+    setSelectedLayer(id);
+    // Clear filter when switching tabs
+    if (selectedDistrict) onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName);
+  }
 
   function getDisplayName(layerId) {
     if (LAYER_CONFIG[layerId]) return LAYER_CONFIG[layerId].displayName;
@@ -44,7 +51,18 @@ export default function AnalysisPanel({ uploadedData, activeLayers, layerGeojson
       <div style={panelHeader}>
         <span style={panelTitle}>Analysis — {points.length.toLocaleString()} points</span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {activeLayers.length === 0 && (
+          {selectedDistrict && (
+            <span style={filterBadge}>
+              {selectedDistrict.districtName}
+              <button
+                style={clearFilterBtn}
+                onClick={() => onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName)}
+              >
+                ✕
+              </button>
+            </span>
+          )}
+          {activeLayers.length === 0 && !selectedDistrict && (
             <span style={hint}>Enable boundary layers to analyze districts</span>
           )}
           <button style={toggleBtn} onClick={() => setOpen((o) => !o)}>
@@ -66,7 +84,7 @@ export default function AnalysisPanel({ uploadedData, activeLayers, layerGeojson
                       background: activeLayer === id ? 'var(--dark-navy)' : '#edf2f7',
                       color: activeLayer === id ? '#fff' : 'var(--dark-navy)',
                     }}
-                    onClick={() => setSelectedLayer(id)}
+                    onClick={() => handleTabClick(id)}
                   >
                     {getDisplayName(id)}
                   </button>
@@ -86,20 +104,33 @@ export default function AnalysisPanel({ uploadedData, activeLayers, layerGeojson
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, i) => (
-                      <tr key={i} style={i % 2 === 0 ? {} : { background: '#f7fafc' }}>
-                        <td style={td}>{row.districtName}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
-                        {numericFields.slice(0, 3).map((f) => (
-                          <td key={f} style={{ ...td, textAlign: 'right' }}>
-                            {row.fieldAverages[f] !== undefined
-                              ? row.fieldAverages[f].toFixed(2)
-                              : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
+                    {rows.map((row, i) => {
+                      const isSelected =
+                        selectedDistrict?.layerId === activeLayer &&
+                        selectedDistrict?.districtName === row.districtName;
+                      return (
+                        <tr
+                          key={i}
+                          style={{
+                            ...(i % 2 === 0 ? {} : { background: '#f7fafc' }),
+                            ...(isSelected ? selectedRow : {}),
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => onDistrictSelect(activeLayer, row.districtName)}
+                        >
+                          <td style={td}>{row.districtName}</td>
+                          <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
+                          {numericFields.slice(0, 3).map((f) => (
+                            <td key={f} style={{ ...td, textAlign: 'right' }}>
+                              {row.fieldAverages[f] !== undefined
+                                ? row.fieldAverages[f].toFixed(2)
+                                : '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
                     {unmatchedCount > 0 && (
                       <tr style={{ background: '#fff5f5' }}>
                         <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
@@ -181,4 +212,18 @@ const th = {
 };
 const td = {
   padding: '4px 8px', borderBottom: '1px solid #f0f4f8', fontSize: 12,
+};
+const selectedRow = {
+  background: '#e8f0fe',
+  borderLeft: '3px solid var(--mid-blue)',
+};
+const filterBadge = {
+  display: 'flex', alignItems: 'center', gap: 4,
+  fontSize: 11, fontWeight: 600,
+  background: '#e8f0fe', color: 'var(--mid-blue)',
+  borderRadius: 3, padding: '2px 6px',
+};
+const clearFilterBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 10, color: 'var(--mid-blue)', padding: 0, lineHeight: 1,
 };

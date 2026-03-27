@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { STATE_FIPS } from '../lib/stateFips';
@@ -16,12 +16,17 @@ export default function LayerPanel({
   onCustomLayer,
   onUploadClick,
   hasData,
+  onAddressLookup,
+  lookupStatus,
+  lookupLabel,
 }) {
   const [openSections, setOpenSections] = useState({ national: true, state: false, local: false });
   const [selectedState, setSelectedState] = useState('');
   const [selectedCity, setSelectedCity] = useState('');
   const [stateSearch, setStateSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
+  const [lookupInput, setLookupInput] = useState('');
+  const lookupInputRef = useRef();
 
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -81,8 +86,41 @@ export default function LayerPanel({
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
-        <img src="/North_Arrow_logo.svg" alt="North Arrow" style={styles.logo} onError={(e) => { e.target.style.display = 'none'; }} />
+        <img src="/North_Arrow_logo.png" alt="North Arrow" style={styles.logo} />
         <span style={styles.appName}>District Mapper</span>
+      </div>
+
+      {/* Address lookup */}
+      <div style={styles.lookupBox}>
+        <form
+          style={styles.lookupRow}
+          onSubmit={(e) => {
+            e.preventDefault();
+            onAddressLookup(lookupInput);
+          }}
+        >
+          <input
+            ref={lookupInputRef}
+            style={styles.lookupInput}
+            placeholder="Look up an address…"
+            value={lookupInput}
+            onChange={(e) => setLookupInput(e.target.value)}
+            disabled={lookupStatus === 'loading'}
+          />
+          <button
+            type="submit"
+            style={styles.lookupBtn}
+            disabled={lookupStatus === 'loading' || !lookupInput.trim()}
+          >
+            {lookupStatus === 'loading' ? '…' : '→'}
+          </button>
+        </form>
+        {lookupStatus === 'found' && (
+          <p style={styles.lookupFound}>{lookupLabel}</p>
+        )}
+        {lookupStatus === 'error' && (
+          <p style={styles.lookupError}>{lookupLabel}</p>
+        )}
       </div>
 
       <button style={styles.uploadBtn} onClick={onUploadClick}>
@@ -212,17 +250,57 @@ const styles = {
   },
   header: {
     display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '14px 16px 10px',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 2,
+    padding: '12px 16px 10px',
     borderBottom: '1px solid #dde3ea',
   },
-  logo: { height: 28, width: 'auto' },
+  logo: { height: 36, width: 'auto', maxWidth: 220 },
   appName: {
     fontFamily: 'Poppins, sans-serif',
     fontWeight: 700,
-    fontSize: 14,
-    color: 'var(--dark-navy)',
+    fontSize: 12,
+    color: 'var(--mid-blue)',
+    marginTop: 2,
+  },
+  lookupBox: {
+    padding: '10px 16px 8px',
+    borderBottom: '1px solid #dde3ea',
+  },
+  lookupRow: {
+    display: 'flex',
+    gap: 6,
+  },
+  lookupInput: {
+    flex: 1,
+    padding: '6px 8px',
+    border: '1px solid #c5d0da',
+    borderRadius: 4,
+    fontSize: 12,
+  },
+  lookupBtn: {
+    padding: '6px 10px',
+    background: 'var(--mid-blue)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 4,
+    fontSize: 13,
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
+  lookupFound: {
+    fontSize: 11,
+    color: '#166534',
+    margin: '4px 0 0',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  lookupError: {
+    fontSize: 11,
+    color: 'var(--red)',
+    margin: '4px 0 0',
   },
   uploadBtn: {
     margin: '12px 16px',

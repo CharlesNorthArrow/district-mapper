@@ -105,6 +105,45 @@ const MapView = forwardRef(function MapView(_, ref) {
       const [west, south, east, north] = bbox;
       map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 14 });
     },
+
+    filterPoints(indices) {
+      const map = mapRef.current;
+      if (!map?.getLayer('uploaded-points')) return;
+      map.setFilter('uploaded-points', ['in', ['get', '_rowIndex'], ['literal', indices]]);
+    },
+
+    clearPointFilter() {
+      const map = mapRef.current;
+      if (!map?.getLayer('uploaded-points')) return;
+      map.setFilter('uploaded-points', null);
+    },
+
+    addSearchPin(lng, lat) {
+      const map = mapRef.current;
+      if (!map) return;
+      if (map.getLayer('search-pin')) map.removeLayer('search-pin');
+      if (map.getSource('search-pin')) map.removeSource('search-pin');
+      map.addSource('search-pin', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lng, lat] },
+          properties: {},
+        },
+      });
+      map.addLayer({
+        id: 'search-pin',
+        type: 'circle',
+        source: 'search-pin',
+        paint: {
+          'circle-radius': 9,
+          'circle-color': '#1c3557',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+        },
+      });
+      map.flyTo({ center: [lng, lat], zoom: 14 });
+    },
   }));
 
   return (
