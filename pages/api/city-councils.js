@@ -25,26 +25,24 @@ export default async function handler(req, res) {
     });
   }
 
-  if (!bbox) {
-    return res.status(400).json({ error: 'bbox param required' });
-  }
-
-  const [west, south, east, north] = bbox.split(',').map(Number);
-  if ([west, south, east, north].some(isNaN)) {
-    return res.status(400).json({ error: 'bbox must be comma-separated numbers: west,south,east,north' });
-  }
-
   const params = new URLSearchParams({
     f: 'geojson',
-    geometryType: 'esriGeometryEnvelope',
-    geometry: `${west},${south},${east},${north}`,
-    inSR: '4326',
     outSR: '4326',
     outFields: config.districtField,
     returnGeometry: 'true',
     where: 'OBJECTID IS NOT NULL',
     resultRecordCount: '500',
   });
+
+  // Optionally narrow by bounding box when caller supplies one
+  if (bbox) {
+    const [west, south, east, north] = bbox.split(',').map(Number);
+    if (![west, south, east, north].some(isNaN)) {
+      params.set('geometryType', 'esriGeometryEnvelope');
+      params.set('geometry', `${west},${south},${east},${north}`);
+      params.set('inSR', '4326');
+    }
+  }
 
   const url = `${config.arcgisEndpoint}/${config.layerId}/query?${params}`;
 

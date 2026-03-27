@@ -4,44 +4,85 @@ import MapView from '../components/MapView';
 import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
+import Legend from '../components/Legend';
+import TourOverlay from '../components/TourOverlay';
 import { assignDistricts } from '../lib/pointInDistrict';
+import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies } from '../lib/geoSuggest';
+import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/layerColors';
 
-const LAYER_COLORS = {
-  congressional: '#e63947',
-  'us-senate': '#1c3557',
-  'state-senate': '#467c9d',
-  'state-house': '#a9dadc',
-  'school-unified': '#6a4c93',
-  'school-elementary': '#f4a261',
-  'school-secondary': '#2a9d8f',
+const tourBtnStyle = {
+  position: 'absolute',
+  top: 10,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  zIndex: 5,
+  background: 'rgba(255,255,255,0.93)',
+  border: '1px solid #dde3ea',
+  borderRadius: 20,
+  padding: '6px 14px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#1c3557',
+  fontFamily: "'Open Sans', sans-serif",
+  cursor: 'pointer',
+  boxShadow: '0 1px 6px rgba(0,0,0,0.1)',
+  whiteSpace: 'nowrap',
 };
 
 export default function Home() {
   const mapRef = useRef(null);
+  const customColorIndexRef = useRef(0);
   const [activeLayers, setActiveLayers] = useState([]);
+  const [layerColors, setLayerColors] = useState({});
   const [uploadedData, setUploadedData] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
   const [enrichedPoints, setEnrichedPoints] = useState([]);
-  const [selectedDistrict, setSelectedDistrict] = useState(null); // { layerId, districtName } | null
-  const [geoSuggestions, setGeoSuggestions] = useState(null); // { states, cities } | null
-  const [lookupStatus, setLookupStatus] = useState('idle'); // idle | loading | found | error
+  const [selectedDistrict, setSelectedDistrict] = useState(null);
+  const [geoSuggestions, setGeoSuggestions] = useState(null);
+  const [lookupStatus, setLookupStatus] = useState('idle');
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
+  const [showTour, setShowTour] = useState(false);
 
-  // Recompute enriched points whenever upload data or loaded boundary layers change
   useEffect(() => {
     if (!uploadedData) return;
     setEnrichedPoints(assignDistricts(uploadedData.points, layerGeojson));
   }, [uploadedData, layerGeojson]);
 
+  function getDistrictBbox(layerId, districtName) {
+    const geojson = layerGeojson[layerId];
+    if (!geojson?.features?.length) return null;
+    const field = LAYER_CONFIG[layerId]?.districtField;
+    const feature = geojson.features.find((f) => {
+      const name = field
+        ? (f.properties[field] ?? f.properties.NAME ?? f.properties.name)
+        : (f.properties.NAME ?? f.properties.name);
+      return name === districtName;
+    });
+    if (!feature?.geometry) return null;
+    const coords = [];
+    function collect(geom) {
+      if (!geom) return;
+      if (geom.type === 'Point') { coords.push(geom.coordinates); return; }
+      if (geom.type === 'MultiPoint' || geom.type === 'LineString') { coords.push(...geom.coordinates); return; }
+      if (geom.type === 'MultiLineString' || geom.type === 'Polygon') { geom.coordinates.forEach((r) => coords.push(...r)); return; }
+      if (geom.type === 'MultiPolygon') { geom.coordinates.forEach((poly) => poly.forEach((r) => coords.push(...r))); return; }
+      if (geom.type === 'GeometryCollection') { geom.geometries.forEach(collect); }
+    }
+    collect(feature.geometry);
+    if (!coords.length) return null;
+    const lngs = coords.map((c) => c[0]);
+    const lats = coords.map((c) => c[1]);
+    return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+  }
+
   function handleDistrictSelect(layerId, districtName) {
     if (selectedDistrict?.layerId === layerId && selectedDistrict?.districtName === districtName) {
       setSelectedDistrict(null);
       mapRef.current?.clearPointFilter();
-      // Zoom back to all points
       if (uploadedData?.points.length > 0) {
         const lngs = uploadedData.points.map((p) => p.lng);
         const lats = uploadedData.points.map((p) => p.lat);
@@ -51,12 +92,8 @@ export default function Home() {
       const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
       setSelectedDistrict({ layerId, districtName });
       mapRef.current?.filterPoints(matching.map((p) => p._rowIndex));
-      // Zoom to the matching points
-      if (matching.length > 0) {
-        const lngs = matching.map((p) => p.lng);
-        const lats = matching.map((p) => p.lat);
-        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
-      }
+      const bbox = getDistrictBbox(layerId, districtName);
+      if (bbox) mapRef.current?.fitBounds(bbox);
     }
   }
 
@@ -64,7 +101,7 @@ export default function Home() {
     mapRef.current?.addSearchPin(lng, lat);
     setLookupStatus('found');
     setLookupLabel(label);
-    setLookupDistricts(null); // null = loading
+    setLookupDistricts(null);
     try {
       const res = await fetch(`/api/district-lookup?lat=${lat}&lng=${lng}`);
       if (res.ok) {
@@ -77,7 +114,6 @@ export default function Home() {
     }
   }
 
-  // Called when user submits typed text — geocodes first
   async function handleAddressLookup(address) {
     if (!address.trim()) return;
     setLookupStatus('loading');
@@ -103,7 +139,6 @@ export default function Home() {
     }
   }
 
-  // Called when user picks an autocomplete suggestion — coordinates already known
   function handleAddressSelect(lat, lng, label) {
     setLookupDistricts({});
     pinAndAssignDistricts(lat, lng, label);
@@ -112,6 +147,7 @@ export default function Home() {
   function removeLayer(layerId) {
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
     setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+    setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
     mapRef.current?.removeBoundaryLayer(layerId);
   }
 
@@ -127,6 +163,7 @@ export default function Home() {
       mapRef.current?.addBoundaryLayer(layerId, data, color);
       setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
       setLayerGeojson((prev) => ({ ...prev, [layerId]: data }));
+      setLayerColors((prev) => ({ ...prev, [layerId]: color }));
     } catch (err) {
       alert(`Could not load ${layerId}: ${err.message}`);
     } finally {
@@ -134,28 +171,55 @@ export default function Home() {
     }
   }
 
-  // National layers (congressional, us-senate) — no stateFips needed
+  // National layers — no stateFips needed
   const handleLayerToggle = useCallback(async (layerId, enabled) => {
     if (!enabled) { removeLayer(layerId); return; }
-    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}`, LAYER_COLORS[layerId] || '#467c9d');
+    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}`, LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR);
   }, []);
 
-  // State layers (state-senate, state-house, school-*) — require stateFips
-  const handleStateLayerToggle = useCallback(async (layerId, enabled, stateFips) => {
-    if (!enabled) { removeLayer(layerId); return; }
-    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}&stateFips=${stateFips}`, LAYER_COLORS[layerId] || '#467c9d');
+  // State layers — fipsArray may contain multiple states; fetch in parallel and merge
+  const handleStateLayerToggle = useCallback(async (layerId, enabled, fipsArray) => {
+    if (!enabled || !fipsArray?.length) { removeLayer(layerId); return; }
+    const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
+    setLoadingLayer(layerId);
+    try {
+      const results = await Promise.all(
+        fipsArray.map(async (fips) => {
+          const res = await fetch(`/api/boundaries?layer=${layerId}&stateFips=${fips}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || res.statusText);
+          return data;
+        })
+      );
+      const merged = {
+        type: 'FeatureCollection',
+        features: results.flatMap((r) => r.features || []),
+      };
+      mapRef.current?.addBoundaryLayer(layerId, merged, color);
+      setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
+      setLayerGeojson((prev) => ({ ...prev, [layerId]: merged }));
+      setLayerColors((prev) => ({ ...prev, [layerId]: color }));
+    } catch (err) {
+      alert(`Could not load ${layerId}: ${err.message}`);
+    } finally {
+      setLoadingLayer(null);
+    }
   }, []);
 
-  const handleCityLayerToggle = useCallback(async (citySlug, enabled, bbox) => {
+  const handleCityLayerToggle = useCallback(async (citySlug, enabled) => {
     const layerId = `council-${citySlug}`;
     if (!enabled) { removeLayer(layerId); return; }
-    await fetchAndAddLayer(layerId, `/api/city-councils?city=${citySlug}&bbox=${bbox}`, '#e63947');
+    const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
+    await fetchAndAddLayer(layerId, `/api/city-councils?city=${citySlug}`, color);
   }, []);
 
   const handleCustomLayer = useCallback((layerId, geojson) => {
-    mapRef.current?.addBoundaryLayer(layerId, geojson, '#6a4c93');
+    const color = CUSTOM_COLOR_POOL[customColorIndexRef.current % CUSTOM_COLOR_POOL.length];
+    customColorIndexRef.current += 1;
+    mapRef.current?.addBoundaryLayer(layerId, geojson, color);
     setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
     setLayerGeojson((prev) => ({ ...prev, [layerId]: geojson }));
+    setLayerColors((prev) => ({ ...prev, [layerId]: color }));
   }, []);
 
   const handleUploadComplete = useCallback((points, originalRows, headers) => {
@@ -199,6 +263,13 @@ export default function Home() {
 
         <div style={{ flex: 1, position: 'relative' }}>
           <MapView ref={mapRef} />
+          <Legend activeLayers={activeLayers} layerColors={layerColors} />
+          <button
+            style={tourBtnStyle}
+            onClick={() => setShowTour(true)}
+          >
+            ? How does this work
+          </button>
           {uploadedData && (
             <AnalysisPanel
               uploadedData={uploadedData}
@@ -218,6 +289,8 @@ export default function Home() {
           onUploadComplete={handleUploadComplete}
         />
       )}
+
+      {showTour && <TourOverlay onClose={() => setShowTour(false)} />}
     </>
   );
 }

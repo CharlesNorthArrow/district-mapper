@@ -3,7 +3,6 @@ import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { STATE_FIPS, STATE_ABBR } from '../lib/stateFips';
 
-// Reverse map: state name → abbreviation, for display and search
 const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, name]) => [name, abbr]));
 
 const US_STATES = Object.keys(STATE_FIPS).sort();
@@ -27,13 +26,17 @@ export default function LayerPanel({
   lookupDistricts,
 }) {
   const [openSections, setOpenSections] = useState({ national: true, state: false, local: false });
-  const [selectedState, setSelectedState] = useState('');
-  const [selectedCity, setSelectedCity] = useState('');
+  const [selectedStates, setSelectedStates] = useState([]);
+  const [selectedCities, setSelectedCities] = useState([]);
   const [stateSearch, setStateSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
   const [lookupInput, setLookupInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const lookupInputRef = useRef();
+
+  // Keep a ref to activeLayers so effects can read it without being in their deps
+  const activeLayersRef = useRef(activeLayers);
+  useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
 
   // Debounced autocomplete — calls Mapbox Geocoding API as user types
   useEffect(() => {
@@ -60,25 +63,60 @@ export default function LayerPanel({
     const updates = {};
     if (geoSuggestions.states.length > 0) {
       updates.state = true;
-      if (geoSuggestions.states.length === 1) setSelectedState(geoSuggestions.states[0]);
+      setSelectedStates(geoSuggestions.states);
     }
     if (geoSuggestions.cities.length > 0) {
       updates.local = true;
-      if (geoSuggestions.cities.length === 1) setSelectedCity(geoSuggestions.cities[0]);
+      setSelectedCities(geoSuggestions.cities);
     }
     if (Object.keys(updates).length > 0) {
       setOpenSections((prev) => ({ ...prev, ...updates }));
     }
   }, [geoSuggestions]);
 
+  // Re-fetch active state layers whenever the selected state set changes
+  const isFirstStateRender = useRef(true);
+  useEffect(() => {
+    if (isFirstStateRender.current) { isFirstStateRender.current = false; return; }
+    const fipsArray = selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean);
+    for (const id of STATE_LAYERS) {
+      if (activeLayersRef.current.includes(id)) {
+        onStateLayerToggle(id, fipsArray.length > 0, fipsArray);
+      }
+    }
+  }, [selectedStates]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function toggleSection(key) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  function addState(name) {
+    setSelectedStates((prev) => prev.includes(name) ? prev : [...prev, name]);
+    setStateSearch('');
+  }
+
+  function removeState(name) {
+    setSelectedStates((prev) => prev.filter((s) => s !== name));
+  }
+
+  function addCity(slug) {
+    setSelectedCities((prev) => prev.includes(slug) ? prev : [...prev, slug]);
+    setCitySearch('');
+  }
+
+  function removeCity(slug) {
+    // Remove the main council layer and any extra layers for this city
+    onCityLayerToggle(slug, false);
+    for (const { slug: extraSlug } of CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []) {
+      onCityLayerToggle(extraSlug, false);
+    }
+    setSelectedCities((prev) => prev.filter((c) => c !== slug));
+  }
+
   function handleStateLayerCheck(layerId, checked) {
-    if (!selectedState) return;
-    const fips = STATE_FIPS[selectedState];
-    onStateLayerToggle(layerId, checked, fips);
+    const fipsArray = selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean);
+    if (fipsArray.length === 0) return;
+    onStateLayerToggle(layerId, checked, fipsArray);
   }
 
   function handleCustomFile(e) {
@@ -109,9 +147,13 @@ export default function LayerPanel({
     const abbr = NAME_TO_ABBR[s];
     return abbr ? abbr.toLowerCase().includes(q) : false;
   });
-  const cityEntries = Object.entries(CITY_COUNCIL_REGISTRY).filter(([, c]) =>
-    c.name.toLowerCase().includes(citySearch.toLowerCase())
-  );
+
+  const cityEntries = Object.entries(CITY_COUNCIL_REGISTRY)
+    // Exclude sub-entries (like nyc-nta) that exist only as extras under a parent city
+    .filter(([slug, c]) => !slug.includes('-') || !Object.values(CITY_COUNCIL_REGISTRY).some(
+      (other) => (other.extraLayers || []).some((e) => e.slug === slug)
+    ))
+    .filter(([, c]) => c.name.toLowerCase().includes(citySearch.toLowerCase()));
 
   function LayerRow({ layerId, label, onToggle }) {
     const isActive = activeLayers.includes(layerId);
@@ -166,8 +208,8 @@ export default function LayerPanel({
             {lookupStatus === 'loading' ? '…' : '→'}
           </button>
         </form>
-
         </div>
+
         {suggestions.length > 0 && (
           <div style={styles.suggestions}>
             {suggestions.map((f) => (
@@ -247,66 +289,70 @@ export default function LayerPanel({
         </button>
         {openSections.state && (
           <div style={styles.sectionBody}>
-            {selectedState ? (
-              <>
-                <div style={styles.selectedRow}>
-                  <span style={styles.selectedName}>
-                    {selectedState}
-                    {NAME_TO_ABBR[selectedState] && (
-                      <span style={styles.selectedAbbr}> ({NAME_TO_ABBR[selectedState]})</span>
-                    )}
-                  </span>
-                  <button style={styles.changeBtn} onClick={() => { setSelectedState(''); setStateSearch(''); }}>
-                    Change ×
+            {/* Selected state chips */}
+            {selectedStates.length > 0 && (
+              <div style={{ ...styles.chips, marginBottom: 8 }}>
+                {selectedStates.map((s) => (
+                  <button
+                    key={s}
+                    style={{ ...styles.chip, ...styles.chipActive }}
+                    onClick={() => removeState(s)}
+                  >
+                    {NAME_TO_ABBR[s] || s} ×
                   </button>
-                </div>
-                <div style={{ marginTop: 6 }}>
-                  {STATE_LAYERS.map((layerId) => (
-                    <LayerRow
-                      key={layerId}
-                      layerId={layerId}
-                      label={LAYER_CONFIG[layerId].displayName}
-                      onToggle={(id, checked) => handleStateLayerCheck(id, checked)}
-                    />
+                ))}
+              </div>
+            )}
+
+            {/* Your data suggestions */}
+            {geoSuggestions?.states.filter((s) => !selectedStates.includes(s)).length > 0 && (
+              <div style={styles.suggestionGroup}>
+                <span style={styles.suggestionLabel}>Your data</span>
+                <div style={styles.chips}>
+                  {geoSuggestions.states.filter((s) => !selectedStates.includes(s)).map((s) => (
+                    <button key={s} style={styles.chip} onClick={() => addState(s)}>
+                      + {NAME_TO_ABBR[s] || s}
+                    </button>
                   ))}
                 </div>
-              </>
+              </div>
+            )}
+
+            <input
+              style={styles.search}
+              placeholder="Add a state…"
+              value={stateSearch}
+              onChange={(e) => setStateSearch(e.target.value)}
+            />
+            {filteredStates.filter((s) => !selectedStates.includes(s)).length > 0 && (
+              <select
+                style={styles.select}
+                value=""
+                onChange={(e) => { if (e.target.value) addState(e.target.value); }}
+                size={4}
+              >
+                <option value="" disabled />
+                {filteredStates.filter((s) => !selectedStates.includes(s)).map((s) => (
+                  <option key={s} value={s}>{s} ({NAME_TO_ABBR[s] || ''})</option>
+                ))}
+              </select>
+            )}
+
+            {selectedStates.length > 0 ? (
+              <div style={styles.layerGroup}>
+                {STATE_LAYERS.map((layerId) => (
+                  <LayerRow
+                    key={layerId}
+                    layerId={layerId}
+                    label={LAYER_CONFIG[layerId].displayName}
+                    onToggle={(id, checked) => handleStateLayerCheck(id, checked)}
+                  />
+                ))}
+              </div>
             ) : (
-              <>
-                {geoSuggestions?.states.length > 0 && (
-                  <div style={styles.suggestionGroup}>
-                    <span style={styles.suggestionLabel}>Your data</span>
-                    <div style={styles.chips}>
-                      {geoSuggestions.states.map((s) => (
-                        <button
-                          key={s}
-                          style={styles.chip}
-                          onClick={() => setSelectedState(s)}
-                        >
-                          {NAME_TO_ABBR[s] || s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <input
-                  style={styles.search}
-                  placeholder="Search by name or abbreviation…"
-                  value={stateSearch}
-                  onChange={(e) => setStateSearch(e.target.value)}
-                />
-                <select
-                  style={styles.select}
-                  value={selectedState}
-                  onChange={(e) => setSelectedState(e.target.value)}
-                  size={4}
-                >
-                  {filteredStates.map((s) => (
-                    <option key={s} value={s}>{s} ({NAME_TO_ABBR[s] || ''})</option>
-                  ))}
-                </select>
-                <p style={{ ...styles.hint, marginTop: 6 }}>Select a state to enable district layers</p>
-              </>
+              <p style={{ ...styles.hint, marginTop: 6 }}>
+                Select one or more states to enable district layers
+              </p>
             )}
           </div>
         )}
@@ -320,60 +366,79 @@ export default function LayerPanel({
         </button>
         {openSections.local && (
           <div style={styles.sectionBody}>
-            {selectedCity ? (
-              <>
-                <div style={styles.selectedRow}>
-                  <span style={styles.selectedName}>
-                    {CITY_COUNCIL_REGISTRY[selectedCity]?.name || selectedCity}
-                  </span>
-                  <button style={styles.changeBtn} onClick={() => { setSelectedCity(''); setCitySearch(''); }}>
-                    Change ×
+            {/* Selected city chips */}
+            {selectedCities.length > 0 && (
+              <div style={{ ...styles.chips, marginBottom: 8 }}>
+                {selectedCities.map((slug) => (
+                  <button
+                    key={slug}
+                    style={{ ...styles.chip, ...styles.chipActive }}
+                    onClick={() => removeCity(slug)}
+                  >
+                    {CITY_COUNCIL_REGISTRY[slug]?.name || slug} ×
                   </button>
-                </div>
-                <div style={{ marginTop: 6 }}>
-                  <LayerRow
-                    layerId={`council-${selectedCity}`}
-                    label="Council Districts"
-                    onToggle={(_, checked) => onCityLayerToggle(selectedCity, checked)}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                {geoSuggestions?.cities.length > 0 && (
-                  <div style={styles.suggestionGroup}>
-                    <span style={styles.suggestionLabel}>Your data</span>
-                    <div style={styles.chips}>
-                      {geoSuggestions.cities.map((slug) => (
-                        <button
-                          key={slug}
-                          style={styles.chip}
-                          onClick={() => setSelectedCity(slug)}
-                        >
-                          {CITY_COUNCIL_REGISTRY[slug]?.name || slug}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <p style={styles.hint}>Council districts (Tier 1 cities)</p>
-                <input
-                  style={styles.search}
-                  placeholder="Search city…"
-                  value={citySearch}
-                  onChange={(e) => setCitySearch(e.target.value)}
-                />
-                <select
-                  style={styles.select}
-                  value={selectedCity}
-                  onChange={(e) => setSelectedCity(e.target.value)}
-                  size={4}
-                >
-                  {cityEntries.map(([slug, c]) => (
-                    <option key={slug} value={slug}>{c.name}</option>
+                ))}
+              </div>
+            )}
+
+            {/* Your data city suggestions */}
+            {geoSuggestions?.cities.filter((s) => !selectedCities.includes(s)).length > 0 && (
+              <div style={styles.suggestionGroup}>
+                <span style={styles.suggestionLabel}>Your data</span>
+                <div style={styles.chips}>
+                  {geoSuggestions.cities.filter((s) => !selectedCities.includes(s)).map((slug) => (
+                    <button key={slug} style={styles.chip} onClick={() => addCity(slug)}>
+                      + {CITY_COUNCIL_REGISTRY[slug]?.name || slug}
+                    </button>
                   ))}
-                </select>
-              </>
+                </div>
+              </div>
+            )}
+
+            <input
+              style={styles.search}
+              placeholder="Add a city…"
+              value={citySearch}
+              onChange={(e) => setCitySearch(e.target.value)}
+            />
+            {cityEntries.filter(([slug]) => !selectedCities.includes(slug)).length > 0 && (
+              <select
+                style={styles.select}
+                value=""
+                onChange={(e) => { if (e.target.value) addCity(e.target.value); }}
+                size={4}
+              >
+                <option value="" disabled />
+                {cityEntries.filter(([slug]) => !selectedCities.includes(slug)).map(([slug, c]) => (
+                  <option key={slug} value={slug}>{c.name}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Layers per selected city */}
+            {selectedCities.length > 0 && (
+              <div style={styles.layerGroup}>
+                {selectedCities.map((slug) => (
+                  <div key={slug} style={{ marginBottom: 6 }}>
+                    <div style={styles.cityGroupLabel}>
+                      {CITY_COUNCIL_REGISTRY[slug]?.name || slug}
+                    </div>
+                    <LayerRow
+                      layerId={`council-${slug}`}
+                      label="Council Districts"
+                      onToggle={(_, checked) => onCityLayerToggle(slug, checked)}
+                    />
+                    {(CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []).map(({ slug: extraSlug, label }) => (
+                      <LayerRow
+                        key={extraSlug}
+                        layerId={`council-${extraSlug}`}
+                        label={label}
+                        onToggle={(_, checked) => onCityLayerToggle(extraSlug, checked)}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
             )}
 
             <p style={{ ...styles.hint, marginTop: 12 }}>Custom boundary (GeoJSON)</p>
@@ -549,6 +614,20 @@ const styles = {
     cursor: 'pointer',
     fontSize: 13,
   },
+  layerGroup: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTop: '1px solid #eef1f4',
+  },
+  cityGroupLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: '#7a8fa6',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: 1,
+    marginTop: 4,
+  },
   search: {
     width: '100%',
     padding: '5px 8px',
@@ -556,6 +635,7 @@ const styles = {
     borderRadius: 3,
     fontSize: 12,
     marginBottom: 4,
+    boxSizing: 'border-box',
   },
   select: {
     width: '100%',
@@ -565,17 +645,6 @@ const styles = {
     padding: 2,
   },
   hint: { fontSize: 11, color: '#7a8fa6', marginBottom: 4 },
-  selectedRow: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    background: '#f0f4f8', borderRadius: 4, padding: '5px 8px',
-  },
-  selectedName: { fontSize: 13, fontWeight: 600, color: 'var(--dark-navy)' },
-  selectedAbbr: { fontWeight: 400, color: '#7a8fa6' },
-  changeBtn: {
-    background: 'none', border: 'none', fontSize: 11,
-    color: 'var(--mid-blue)', cursor: 'pointer', padding: 0,
-    textDecoration: 'underline', whiteSpace: 'nowrap',
-  },
   suggestionGroup: { marginBottom: 8 },
   suggestionLabel: {
     fontSize: 10, fontWeight: 600, color: '#7a8fa6',

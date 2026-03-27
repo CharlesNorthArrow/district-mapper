@@ -1,10 +1,29 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 
+function buildPopupHTML(properties) {
+  const skip = new Set(['_rowIndex', 'lat', 'lng']);
+  const rows = Object.entries(properties)
+    .filter(([k]) => !skip.has(k))
+    .map(([k, v]) => `
+      <tr>
+        <td style="padding:3px 8px 3px 0;color:#7a8fa6;white-space:nowrap;vertical-align:top;font-size:11px">${k}</td>
+        <td style="padding:3px 0;font-weight:600;color:#1c3557;font-size:12px;word-break:break-word">${v ?? ''}</td>
+      </tr>`)
+    .join('');
+  return `<div style="max-height:240px;overflow-y:auto;font-family:'Open Sans',sans-serif">
+    <table style="border-collapse:collapse;width:100%">${rows}</table>
+  </div>`;
+}
+
 const MapView = forwardRef(function MapView(_, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const addedLayers = useRef(new Set());
+  const popupRef = useRef(null);
+  const pointClickHandlerRef = useRef(null);
+  const pointEnterHandlerRef = useRef(null);
+  const pointLeaveHandlerRef = useRef(null);
 
   useEffect(() => {
     mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -26,12 +45,14 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map) return;
 
-      // Remove existing layers/source for this id if present
       const fillId = `${id}-fill`;
       const lineId = `${id}-line`;
       if (map.getLayer(fillId)) map.removeLayer(fillId);
       if (map.getLayer(lineId)) map.removeLayer(lineId);
       if (map.getSource(id)) map.removeSource(id);
+
+      // Always insert boundary layers below the point layer so points stay on top
+      const beforeLayer = map.getLayer('uploaded-points') ? 'uploaded-points' : undefined;
 
       map.addSource(id, { type: 'geojson', data: geojson });
       map.addLayer({
@@ -42,7 +63,7 @@ const MapView = forwardRef(function MapView(_, ref) {
           'fill-color': color,
           'fill-opacity': 0.1,
         },
-      });
+      }, beforeLayer);
       map.addLayer({
         id: lineId,
         type: 'line',
@@ -52,7 +73,7 @@ const MapView = forwardRef(function MapView(_, ref) {
           'line-width': 1.5,
           'line-opacity': 0.8,
         },
-      });
+      }, beforeLayer);
       addedLayers.current.add(id);
     },
 
@@ -71,7 +92,12 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map) return;
 
-      // Remove existing point layer if present
+      // Remove previous listeners before removing the layer
+      if (pointClickHandlerRef.current) {
+        map.off('click', 'uploaded-points', pointClickHandlerRef.current);
+        map.off('mouseenter', 'uploaded-points', pointEnterHandlerRef.current);
+        map.off('mouseleave', 'uploaded-points', pointLeaveHandlerRef.current);
+      }
       if (map.getLayer('uploaded-points')) map.removeLayer('uploaded-points');
       if (map.getSource('uploaded-points')) map.removeSource('uploaded-points');
 
@@ -97,6 +123,28 @@ const MapView = forwardRef(function MapView(_, ref) {
           'circle-stroke-color': '#fff',
         },
       });
+
+      // Reuse or create a single popup instance
+      if (!popupRef.current) {
+        popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '320px' });
+      }
+      const popup = popupRef.current;
+
+      const clickHandler = (e) => {
+        const feature = e.features?.[0];
+        if (!feature) return;
+        popup.setLngLat(e.lngLat).setHTML(buildPopupHTML(feature.properties)).addTo(map);
+      };
+      const enterHandler = () => { map.getCanvas().style.cursor = 'pointer'; };
+      const leaveHandler = () => { map.getCanvas().style.cursor = ''; };
+
+      map.on('click', 'uploaded-points', clickHandler);
+      map.on('mouseenter', 'uploaded-points', enterHandler);
+      map.on('mouseleave', 'uploaded-points', leaveHandler);
+
+      pointClickHandlerRef.current = clickHandler;
+      pointEnterHandlerRef.current = enterHandler;
+      pointLeaveHandlerRef.current = leaveHandler;
     },
 
     fitBounds(bbox) {
