@@ -11,6 +11,7 @@ import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies } from '../lib/geoSuggest';
 import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/layerColors';
 import { STATE_FIPS } from '../lib/stateFips';
+import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 
 const tourBtnStyle = {
   position: 'absolute',
@@ -73,17 +74,7 @@ export default function Home() {
     mapRef.current?.fitBounds(bbox);
   }
 
-  function getDistrictBbox(layerId, districtName) {
-    const geojson = layerGeojson[layerId];
-    if (!geojson?.features?.length) return null;
-    const field = LAYER_CONFIG[layerId]?.districtField;
-    const feature = geojson.features.find((f) => {
-      const name = field
-        ? (f.properties[field] ?? f.properties.NAME ?? f.properties.name)
-        : (f.properties.NAME ?? f.properties.name);
-      return name === districtName;
-    });
-    if (!feature?.geometry) return null;
+  function featureBbox(feature) {
     const coords = [];
     function collect(geom) {
       if (!geom) return;
@@ -100,6 +91,47 @@ export default function Home() {
     return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
   }
 
+  function getDistrictBbox(layerId, districtName, matchedPoints) {
+    const geojson = layerGeojson[layerId];
+    if (!geojson?.features?.length) return null;
+
+    const config = LAYER_CONFIG[layerId];
+    const citySlug = layerId.startsWith('council-') ? layerId.slice('council-'.length) : null;
+    const cityConfig = citySlug ? CITY_COUNCIL_REGISTRY[citySlug] : null;
+    const field = config?.districtField ?? cityConfig?.districtField;
+
+    // District names for multi-state layers are prefixed "IL – 1"; strip to match feature properties
+    const rawName = districtName.includes(' – ') ? districtName.split(' – ')[1] : districtName;
+
+    const candidates = geojson.features.filter((f) => {
+      const name = field
+        ? (f.properties[field] ?? f.properties.NAME ?? f.properties.name)
+        : (f.properties.NAME ?? f.properties.name);
+      return String(name) === String(rawName);
+    });
+
+    if (!candidates.length) return null;
+
+    // With multiple candidates (e.g., district "1" in multiple states), pick the one
+    // whose bbox contains the most matched points
+    let bestFeature = candidates[0];
+    if (candidates.length > 1 && matchedPoints?.length) {
+      let bestCount = -1;
+      for (const candidate of candidates) {
+        const bbox = featureBbox(candidate);
+        if (!bbox) continue;
+        const [w, s, e, n] = bbox;
+        const count = matchedPoints.filter((p) => p.lng >= w && p.lng <= e && p.lat >= s && p.lat <= n).length;
+        if (count > bestCount) {
+          bestCount = count;
+          bestFeature = candidate;
+        }
+      }
+    }
+
+    return featureBbox(bestFeature);
+  }
+
   function handleDistrictSelect(layerId, districtName) {
     if (selectedDistrict?.layerId === layerId && selectedDistrict?.districtName === districtName) {
       setSelectedDistrict(null);
@@ -113,8 +145,16 @@ export default function Home() {
       const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
       setSelectedDistrict({ layerId, districtName });
       mapRef.current?.filterPoints(matching.map((p) => p._rowIndex));
-      const bbox = getDistrictBbox(layerId, districtName);
-      if (bbox) mapRef.current?.fitBounds(bbox);
+      // Pass matched points so getDistrictBbox can disambiguate same-named districts across states
+      const bbox = getDistrictBbox(layerId, districtName, matching);
+      if (bbox) {
+        mapRef.current?.fitBounds(bbox);
+      } else if (matching.length > 0) {
+        // Fall back to the bounding box of the matched points themselves
+        const lngs = matching.map((p) => p.lng);
+        const lats = matching.map((p) => p.lat);
+        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+      }
     }
   }
 

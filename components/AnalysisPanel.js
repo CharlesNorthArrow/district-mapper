@@ -34,7 +34,9 @@ export default function AnalysisPanel({
 
   const activeLayer = selectedLayer || activeLayers[0] || null;
   const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
-  const unmatchedCount = enrichedPoints.filter((p) => p.unmatched).length;
+  const unmatchedCount = activeLayer
+    ? enrichedPoints.filter((p) => p[activeLayer] == null).length
+    : 0;
 
   // Count rows matching the checked districts
   const checkedRowCount = useMemo(() => {
