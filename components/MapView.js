@@ -2,7 +2,7 @@ import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 
 function buildPopupHTML(properties) {
-  const skip = new Set(['_rowIndex', '_globalIndex', '_batchId', '_geocodeConfidence', 'lat', 'lng']);
+  const skip = new Set(['_rowIndex', '_globalIndex', '_batchId', '_geocodeConfidence', '_datasetLabel', 'lat', 'lng']);
   const rows = Object.entries(properties)
     .filter(([k]) => !skip.has(k))
     .map(([k, v]) => `
@@ -11,8 +11,11 @@ function buildPopupHTML(properties) {
         <td style="padding:3px 0;font-weight:600;color:#1c3557;font-size:12px;word-break:break-word">${v ?? ''}</td>
       </tr>`)
     .join('');
-  return `<div style="max-height:240px;overflow-y:auto;font-family:'Open Sans',sans-serif">
-    <table style="border-collapse:collapse;width:100%">${rows}</table>
+  const header = properties._datasetLabel
+    ? `<div style="font-family:'Open Sans',sans-serif;font-size:11px;font-weight:700;color:#fff;background:#1c3557;padding:5px 10px;margin:-8px -10px 6px;border-radius:3px 3px 0 0">${properties._datasetLabel}</div>`
+    : '';
+  return `<div style="max-height:260px;overflow-y:auto;font-family:'Open Sans',sans-serif;padding:8px 10px">
+    ${header}<table style="border-collapse:collapse;width:100%">${rows}</table>
   </div>`;
 }
 
@@ -194,8 +197,49 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map) return;
       for (const id of addedLayers.current) {
-        if (map.getLayer(`${id}-fill`)) map.setLayoutProperty(`${id}-fill`, 'visibility', 'visible');
+        if (map.getLayer(`${id}-fill`)) {
+          map.setLayoutProperty(`${id}-fill`, 'visibility', 'visible');
+          map.setPaintProperty(`${id}-fill`, 'fill-opacity', 0.1);  // clear any choropleth
+        }
         if (map.getLayer(`${id}-line`)) map.setLayoutProperty(`${id}-line`, 'visibility', 'visible');
+      }
+    },
+
+    setChoropleth(layerId, districtCounts, districtField, layerColor) {
+      const map = mapRef.current;
+      if (!map) return;
+      const fillId = `${layerId}-fill`;
+      if (!map.getLayer(fillId)) return;
+
+      const entries = Object.entries(districtCounts).filter(([, c]) => c > 0);
+      if (entries.length === 0) {
+        map.setPaintProperty(fillId, 'fill-color', layerColor);
+        map.setPaintProperty(fillId, 'fill-opacity', 0.1);
+        return;
+      }
+
+      const maxCount = Math.max(...entries.map(([, c]) => c), 1);
+      // Strip state prefix ("IL – 5" → "5") to match raw GeoJSON feature names
+      const matchExpr = ['match', ['get', districtField],
+        ...entries.flatMap(([name, count]) => {
+          const raw = name.includes(' – ') ? name.split(' – ').slice(1).join(' – ') : name;
+          return [raw, count / maxCount];
+        }),
+        0,
+      ];
+
+      map.setPaintProperty(fillId, 'fill-color', layerColor);
+      map.setPaintProperty(fillId, 'fill-opacity',
+        ['interpolate', ['linear'], matchExpr, 0, 0.04, 1, 0.72]
+      );
+    },
+
+    clearChoropleth(layerId) {
+      const map = mapRef.current;
+      if (!map) return;
+      const fillId = `${layerId}-fill`;
+      if (map.getLayer(fillId)) {
+        map.setPaintProperty(fillId, 'fill-opacity', 0.1);
       }
     },
 

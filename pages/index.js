@@ -273,7 +273,7 @@ export default function Home() {
     setLayerColors((prev) => ({ ...prev, [layerId]: color }));
   }, []);
 
-  const handleUploadComplete = useCallback((points, originalRows, headers, geos) => {
+  const handleUploadComplete = useCallback((points, originalRows, headers, geos, title) => {
     const isAdd = uploadModeRef.current === 'add';
 
     setDataBatches((prevBatches) => {
@@ -281,12 +281,13 @@ export default function Home() {
       const globalOffset = isAdd ? prevBatches.reduce((sum, b) => sum + b.points.length, 0) : 0;
       const batchId = `batch-${batchIndex}`;
       const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
-      const label = `Dataset ${batchIndex + 1}`;
+      const label = title || `Dataset ${batchIndex + 1}`;
 
       const taggedPoints = points.map((p, i) => ({
         ...p,
         _batchId: batchId,
         _globalIndex: globalOffset + i,
+        _datasetLabel: label,
       }));
 
       const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
@@ -380,6 +381,18 @@ export default function Home() {
                   mapRef.current?.isolateLayer(layerId);
                 } else {
                   mapRef.current?.showAllLayers();
+                }
+              }}
+              onChoropleth={(layerId, countMap, districtField) => {
+                if (!layerId) return; // showAllLayers already resets fill-opacity
+                const color = layerColors[layerId] || DEFAULT_LAYER_COLOR;
+                mapRef.current?.setChoropleth(layerId, countMap, districtField, color);
+              }}
+              onFilteredIndicesChange={(indices) => {
+                if (indices === null) {
+                  mapRef.current?.clearPointFilter();
+                } else {
+                  mapRef.current?.filterPoints(indices);
                 }
               }}
             />

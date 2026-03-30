@@ -4,6 +4,10 @@ import * as XLSX from 'xlsx';
 import { geocodeAddresses } from '../lib/geocodeQueue';
 import { auditData } from '../lib/dataAudit';
 import { suggestGeographies } from '../lib/geoSuggest';
+import UpgradeModal from './UpgradeModal';
+
+const COORDS_LIMIT = 500;
+const GEOCODE_LIMIT = 150;
 
 const CITY_DISPLAY = {
   nyc: 'New York City', la: 'Los Angeles', chicago: 'Chicago',
@@ -15,17 +19,22 @@ const CITY_DISPLAY = {
 
 // All national boundary layers, in display order
 const NATIONAL_LAYER_OPTIONS = [
-  { id: 'congressional',  label: 'Congressional Districts',   sub: 'All 435 US districts',       defaultOn: true  },
-  { id: 'us-senate',      label: 'US Senate (States)',        sub: '50 states as districts',     defaultOn: false },
+  { id: 'congressional',  label: 'Congressional Districts',      sub: 'All 435 US districts',              defaultOn: true  },
+  { id: 'us-senate',      label: 'US Senate (States)',           sub: '50 states as districts',            defaultOn: false },
+  { id: 'counties',       label: 'US Counties',                  sub: '~3,100 counties nationwide',        defaultOn: false },
+  { id: 'tribal-lands',   label: 'Native Tribal Lands',          sub: 'Federal Indian Reservations',       defaultOn: false },
+  { id: 'urban-areas',    label: 'Urban Areas (Census-defined)', sub: 'Urban vs rural boundary areas',     defaultOn: false },
 ];
 
 // All per-state boundary layers, in display order
 const STATE_LAYER_OPTIONS = [
-  { id: 'state-senate',      label: 'State Senate Districts',        defaultOn: true  },
-  { id: 'state-house',       label: 'State House Districts',         defaultOn: false },
-  { id: 'school-unified',    label: 'Unified School Districts',      defaultOn: false },
-  { id: 'school-elementary', label: 'Elementary School Districts',   defaultOn: false },
-  { id: 'school-secondary',  label: 'Secondary School Districts',    defaultOn: false },
+  { id: 'incorporated-places', label: 'Incorporated Places',          defaultOn: false },
+  { id: 'zcta',                label: 'ZIP Code Areas (ZCTA)',        defaultOn: false },
+  { id: 'state-senate',        label: 'State Senate Districts',       defaultOn: true  },
+  { id: 'state-house',         label: 'State House Districts',        defaultOn: false },
+  { id: 'school-unified',      label: 'Unified School Districts',     defaultOn: false },
+  { id: 'school-elementary',   label: 'Elementary School Districts',  defaultOn: false },
+  { id: 'school-secondary',    label: 'Secondary School Districts',   defaultOn: false },
 ];
 
 function buildDefaultChecks(suggestions) {
@@ -63,10 +72,12 @@ export default function UploadModal({ onClose, onUploadComplete }) {
   const [error, setError] = useState('');
 
   // Geography step
-  const [pendingData, setPendingData] = useState(null);    // { points, rows, headers }
+  const [pendingData, setPendingData] = useState(null);    // { points, rows, headers, geocodeFailed }
   const [geoSuggestions, setGeoSuggestions] = useState(null);
   // geoChecks: national layers are booleans; per-state layers are Sets of state names; cities is a Set of slugs
   const [geoChecks, setGeoChecks] = useState(() => buildDefaultChecks({ states: [], cities: [] }));
+  const [dataTitle, setDataTitle] = useState('');
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const fileRef = useRef();
 
@@ -149,9 +160,9 @@ export default function UploadModal({ onClose, onUploadComplete }) {
     return '';
   }
 
-  function showGeoStep(resolvedPoints, resolvedRows, resolvedHeaders) {
+  function showGeoStep(resolvedPoints, resolvedRows, resolvedHeaders, geocodeFailed = []) {
     const suggestions = suggestGeographies(resolvedPoints);
-    setPendingData({ points: resolvedPoints, rows: resolvedRows, headers: resolvedHeaders });
+    setPendingData({ points: resolvedPoints, rows: resolvedRows, headers: resolvedHeaders, geocodeFailed });
     setGeoSuggestions(suggestions);
     setGeoChecks(buildDefaultChecks(suggestions));
     setStep('geography');
@@ -185,14 +196,14 @@ export default function UploadModal({ onClose, onUploadComplete }) {
   }
 
   function handleStartAnalysis() {
-    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, buildGeos());
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, buildGeos(), dataTitle.trim());
   }
 
   function handleSkipGeo() {
     const empty = { cities: [] };
     for (const { id } of NATIONAL_LAYER_OPTIONS) empty[id] = false;
     for (const { id } of STATE_LAYER_OPTIONS) empty[id] = [];
-    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, empty);
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, empty, dataTitle.trim());
   }
 
   async function handleConfirm() {
@@ -261,16 +272,16 @@ export default function UploadModal({ onClose, onUploadComplete }) {
     setProgress(0);
     try {
       const results = await geocodeAddresses(addresses, setProgress);
-      const points = rows
-        .map((row, i) => ({
-          ...row,
-          lat: results[i]?.lat ?? null,
-          lng: results[i]?.lng ?? null,
-          _geocodeConfidence: results[i]?.confidence ?? 0,
-          _rowIndex: i,
-        }))
-        .filter((p) => p.lat !== null && p.lng !== null);
-      showGeoStep(points, rows, headers);
+      const allMapped = rows.map((row, i) => ({
+        ...row,
+        lat: results[i]?.lat ?? null,
+        lng: results[i]?.lng ?? null,
+        _geocodeConfidence: results[i]?.confidence ?? 0,
+        _rowIndex: i,
+      }));
+      const points = allMapped.filter((p) => p.lat !== null && p.lng !== null);
+      const geocodeFailed = rows.filter((_, i) => results[i]?.lat == null);
+      showGeoStep(points, rows, headers, geocodeFailed);
     } catch (err) {
       setError(err.message);
       setStep('review');
@@ -280,6 +291,7 @@ export default function UploadModal({ onClose, onUploadComplete }) {
   const estSeconds = rows.length > 0 ? Math.round(rows.length * 0.2) : 0;
 
   return (
+    <>
     <div style={overlay}>
       <div style={modal}>
         <div style={modalHeader}>
@@ -305,80 +317,109 @@ export default function UploadModal({ onClose, onUploadComplete }) {
         )}
 
         {/* ── REVIEW: coords ── */}
-        {step === 'review' && mode === 'coords' && (
-          <div style={body}>
-            <p style={detectedBadge}>✓ Coordinate columns detected</p>
+        {step === 'review' && mode === 'coords' && (() => {
+          const isOverLimit = rows.length > COORDS_LIMIT;
+          return (
+            <div style={body}>
+              <p style={detectedBadge}>✓ Coordinate columns detected</p>
 
-            {audit?.coordResult.confidence === 'possible' && (
-              <p style={warningStyle}>
-                These columns look numeric but may not be geographic coordinates — check the samples below.
+              {audit?.coordResult.confidence === 'possible' && (
+                <p style={warningStyle}>
+                  These columns look numeric but may not be geographic coordinates — check the samples below.
+                </p>
+              )}
+
+              <div style={fieldGrid}>
+                <span style={fieldLabel}>Latitude</span>
+                <select style={sel} value={latCol} onChange={(e) => setLatCol(e.target.value)}>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <span style={sampleStyle}>{audit?.coordResult.latSample.join('  ')}</span>
+              </div>
+              <div style={fieldGrid}>
+                <span style={fieldLabel}>Longitude</span>
+                <select style={sel} value={lngCol} onChange={(e) => setLngCol(e.target.value)}>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <span style={sampleStyle}>{audit?.coordResult.lngSample.join('  ')}</span>
+              </div>
+
+              <p style={{ ...hint, marginTop: 8 }}>
+                {rows.length.toLocaleString()} rows · Free tier limit: {COORDS_LIMIT.toLocaleString()}
               </p>
-            )}
+              {isOverLimit && (
+                <p style={limitWarning}>
+                  ⚠ Your dataset has {rows.length.toLocaleString()} rows. The free tier allows {COORDS_LIMIT.toLocaleString()} rows for coordinate data.
+                </p>
+              )}
+              {error && <p style={errorStyle}>{error}</p>}
 
-            <div style={fieldGrid}>
-              <span style={fieldLabel}>Latitude</span>
-              <select style={sel} value={latCol} onChange={(e) => setLatCol(e.target.value)}>
-                {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-              </select>
-              <span style={sampleStyle}>{audit?.coordResult.latSample.join('  ')}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+                {isOverLimit ? (
+                  <button style={upgradeBtn} onClick={() => setShowUpgradeModal(true)}>
+                    Request unlimited access →
+                  </button>
+                ) : (
+                  <button style={primaryBtn} onClick={handleConfirm}>Next →</button>
+                )}
+                <button style={linkBtn} onClick={switchToAddressMode}>Use addresses instead →</button>
+              </div>
+              <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
             </div>
-            <div style={fieldGrid}>
-              <span style={fieldLabel}>Longitude</span>
-              <select style={sel} value={lngCol} onChange={(e) => setLngCol(e.target.value)}>
-                {headers.map((h) => <option key={h} value={h}>{h}</option>)}
-              </select>
-              <span style={sampleStyle}>{audit?.coordResult.lngSample.join('  ')}</span>
-            </div>
-
-            <p style={{ ...hint, marginTop: 8 }}>{rows.length.toLocaleString()} rows ready to map.</p>
-            {error && <p style={errorStyle}>{error}</p>}
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-              <button style={primaryBtn} onClick={handleConfirm}>Next →</button>
-              <button style={linkBtn} onClick={switchToAddressMode}>Use addresses instead →</button>
-            </div>
-            <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── REVIEW: address ── */}
-        {step === 'review' && mode === 'address' && (
-          <div style={body}>
-            <p style={hint}>No coordinate columns found. Build addresses from these columns:</p>
+        {step === 'review' && mode === 'address' && (() => {
+          const isOverLimit = rows.length > GEOCODE_LIMIT;
+          return (
+            <div style={body}>
+              <p style={hint}>No coordinate columns found. Build addresses from these columns:</p>
 
-            <div style={{ marginTop: 4 }}>
-              {addrParts.map((part) => (
-                <label key={part.col} style={addrRow}>
-                  <input
-                    type="checkbox"
-                    checked={part.enabled}
-                    onChange={(e) => toggleAddrPart(part.col, e.target.checked)}
-                  />
-                  <span style={{ minWidth: 130, fontSize: 13 }}>{ROLE_LABELS[part.role] || part.role}</span>
-                  <span style={sampleStyle}>"{part.sample}"</span>
-                </label>
-              ))}
-            </div>
-
-            {buildPreview() && (
-              <div style={previewBox}>
-                <span style={{ fontSize: 11, color: '#7a8fa6', marginBottom: 2 }}>Preview (first row)</span>
-                <span style={{ fontSize: 13 }}>"{buildPreview()}"</span>
+              <div style={{ marginTop: 4 }}>
+                {addrParts.map((part) => (
+                  <label key={part.col} style={addrRow}>
+                    <input
+                      type="checkbox"
+                      checked={part.enabled}
+                      onChange={(e) => toggleAddrPart(part.col, e.target.checked)}
+                    />
+                    <span style={{ minWidth: 130, fontSize: 13 }}>{ROLE_LABELS[part.role] || part.role}</span>
+                    <span style={sampleStyle}>"{part.sample}"</span>
+                  </label>
+                ))}
               </div>
-            )}
 
-            <p style={{ ...hint, marginTop: 8 }}>
-              {rows.length.toLocaleString()} rows · ~{estSeconds}s to geocode
-              {rows.length > 1000 && <span style={{ color: 'var(--red)', marginLeft: 4 }}>Large dataset — may take several minutes.</span>}
-            </p>
-            {error && <p style={errorStyle}>{error}</p>}
+              {buildPreview() && (
+                <div style={previewBox}>
+                  <span style={{ fontSize: 11, color: '#7a8fa6', marginBottom: 2 }}>Preview (first row)</span>
+                  <span style={{ fontSize: 13 }}>"{buildPreview()}"</span>
+                </div>
+              )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-              <button style={primaryBtn} onClick={handleConfirm}>Geocode &amp; Map</button>
+              <p style={{ ...hint, marginTop: 8 }}>
+                {rows.length.toLocaleString()} rows · ~{estSeconds}s to geocode · Free tier limit: {GEOCODE_LIMIT.toLocaleString()}
+              </p>
+              {isOverLimit && (
+                <p style={limitWarning}>
+                  ⚠ Your dataset has {rows.length.toLocaleString()} rows. The free tier allows {GEOCODE_LIMIT.toLocaleString()} rows for geocoded data.
+                </p>
+              )}
+              {error && <p style={errorStyle}>{error}</p>}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+                {isOverLimit ? (
+                  <button style={upgradeBtn} onClick={() => setShowUpgradeModal(true)}>
+                    Request unlimited access →
+                  </button>
+                ) : (
+                  <button style={primaryBtn} onClick={handleConfirm}>Geocode &amp; Map</button>
+                )}
+              </div>
+              <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
             </div>
-            <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── REVIEW: manual ── */}
         {step === 'review' && mode === 'manual' && (
@@ -458,14 +499,35 @@ export default function UploadModal({ onClose, onUploadComplete }) {
               </div>
             )}
 
-            <p style={{ ...hint, marginTop: 10 }}>
-              {rows.length.toLocaleString()} rows
-              {manualMode !== 'coords' && ` · ~${estSeconds}s to geocode`}
-            </p>
-            {error && <p style={errorStyle}>{error}</p>}
-            <button style={{ ...primaryBtn, marginTop: 6 }} onClick={handleConfirm}>
-              {manualMode === 'coords' ? 'Next →' : 'Geocode & Map'}
-            </button>
+            {(() => {
+              const isCoords = manualMode === 'coords';
+              const limit = isCoords ? COORDS_LIMIT : GEOCODE_LIMIT;
+              const isOverLimit = rows.length > limit;
+              return (
+                <>
+                  <p style={{ ...hint, marginTop: 10 }}>
+                    {rows.length.toLocaleString()} rows
+                    {!isCoords && ` · ~${estSeconds}s to geocode`}
+                    {' · Free tier limit: '}{limit.toLocaleString()}
+                  </p>
+                  {isOverLimit && (
+                    <p style={limitWarning}>
+                      ⚠ Your dataset has {rows.length.toLocaleString()} rows. The free tier allows {limit.toLocaleString()} rows for {isCoords ? 'coordinate' : 'geocoded'} data.
+                    </p>
+                  )}
+                  {error && <p style={errorStyle}>{error}</p>}
+                  {isOverLimit ? (
+                    <button style={{ ...upgradeBtn, marginTop: 6 }} onClick={() => setShowUpgradeModal(true)}>
+                      Request unlimited access →
+                    </button>
+                  ) : (
+                    <button style={{ ...primaryBtn, marginTop: 6 }} onClick={handleConfirm}>
+                      {isCoords ? 'Next →' : 'Geocode & Map'}
+                    </button>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -483,7 +545,44 @@ export default function UploadModal({ onClose, onUploadComplete }) {
         {/* ── GEOGRAPHY ── */}
         {step === 'geography' && pendingData && (
           <div style={body}>
-            <p style={detectedBadge}>✓ {pendingData.points.length.toLocaleString()} points mapped</p>
+            {pendingData.geocodeFailed?.length > 0 ? (
+              <div style={geocodeReport}>
+                <span>
+                  ✓ {pendingData.points.length.toLocaleString()} of {(pendingData.points.length + pendingData.geocodeFailed.length).toLocaleString()} addresses geocoded
+                  {' '}({Math.round(pendingData.points.length / (pendingData.points.length + pendingData.geocodeFailed.length) * 100)}%)
+                  — <strong>{pendingData.geocodeFailed.length.toLocaleString()} failed</strong>
+                </span>
+                <button
+                  style={linkBtn}
+                  onClick={() => {
+                    const csvRows = [pendingData.headers.join(','), ...pendingData.geocodeFailed.map(r => pendingData.headers.map(h => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
+                    const blob = new Blob([csvRows], { type: 'text/csv' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'failed-addresses.csv';
+                    a.click();
+                  }}
+                >
+                  Download failed rows ↓
+                </button>
+              </div>
+            ) : (
+              <p style={detectedBadge}>✓ {pendingData.points.length.toLocaleString()} points mapped</p>
+            )}
+
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#1c3557', display: 'block', marginBottom: 4 }}>
+                Dataset name
+              </label>
+              <input
+                style={{ ...sel, width: '100%', boxSizing: 'border-box' }}
+                placeholder="e.g. Spring 2025 Program Participants"
+                value={dataTitle}
+                onChange={(e) => setDataTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+
             <p style={hint}>
               {geoSuggestions?.states.length > 0 || geoSuggestions?.cities.length > 0
                 ? 'We detected the following geographies in your data. Choose which boundary layers to load:'
@@ -563,6 +662,9 @@ export default function UploadModal({ onClose, onUploadComplete }) {
         )}
       </div>
     </div>
+
+    {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
+    </>
   );
 }
 
@@ -631,4 +733,22 @@ const sectionDivider = {
   textTransform: 'uppercase', letterSpacing: '0.05em',
   padding: '7px 14px 5px', background: '#f8fafc',
   borderBottom: '1px solid #f0f4f8',
+};
+const geocodeReport = {
+  fontSize: 12, color: '#92400e', background: '#fef3c7',
+  border: '1px solid #fcd34d', borderRadius: 3,
+  padding: '7px 10px', margin: 0,
+  display: 'flex', flexDirection: 'column', gap: 4,
+};
+const limitWarning = {
+  fontSize: 13, color: '#b91c1c', background: '#fee2e2',
+  border: '1px solid #fca5a5', borderRadius: 3,
+  padding: '7px 10px', margin: 0,
+};
+const upgradeBtn = {
+  padding: '9px 18px',
+  background: '#fef3c7', color: '#92400e',
+  border: '1px solid #fcd34d', borderRadius: 4,
+  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+  alignSelf: 'flex-start',
 };

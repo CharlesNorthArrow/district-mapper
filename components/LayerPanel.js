@@ -3,12 +3,13 @@ import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { STATE_FIPS, STATE_ABBR } from '../lib/stateFips';
 import { STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
+import GeoRequestModal from './GeoRequestModal';
 
 const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, name]) => [name, abbr]));
 
 const US_STATES = Object.keys(STATE_FIPS).sort();
-const NATIONAL_LAYERS = ['congressional', 'us-senate'];
-const STATE_LAYERS = ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary'];
+const NATIONAL_LAYERS = ['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas'];
+const STATE_LAYERS = ['incorporated-places', 'zcta', 'state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary'];
 
 export default function LayerPanel({
   activeLayers,
@@ -34,6 +35,7 @@ export default function LayerPanel({
   const [citySearch, setCitySearch] = useState('');
   const [showStateSearch, setShowStateSearch] = useState(false);
   const [showCitySearch, setShowCitySearch] = useState(false);
+  const [showGeoRequest, setShowGeoRequest] = useState(false);
   const [lookupInput, setLookupInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const lookupInputRef = useRef();
@@ -187,8 +189,21 @@ export default function LayerPanel({
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
-        <img src="/North_Arrow_logo.png" alt="North Arrow" style={styles.logo} />
-        <span style={styles.appName}>District Mapper</span>
+        <div style={styles.headerTop}>
+          <img src="/North_Arrow_icon.png" alt="North Arrow" style={styles.icon} />
+          <span style={styles.appName}>District Mapper</span>
+        </div>
+        <p style={styles.attribution}>
+          A nonprofit tool by{' '}
+          <a
+            href="https://north-arrow.org"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={styles.attributionLink}
+          >
+            North Arrow
+          </a>
+        </p>
       </div>
 
       {/* Address lookup */}
@@ -480,6 +495,14 @@ export default function LayerPanel({
           </div>
         )}
       </div>
+      {/* Can't Find Your Geography */}
+      <div style={{ padding: '12px 16px', borderTop: '1px solid #dde3ea', marginTop: 4 }}>
+        <button style={styles.geoRequestBtn} onClick={() => setShowGeoRequest(true)}>
+          Can't Find Your Geography?
+        </button>
+      </div>
+
+      {showGeoRequest && <GeoRequestModal onClose={() => setShowGeoRequest(false)} />}
     </div>
   );
 }
@@ -499,18 +522,41 @@ const styles = {
   header: {
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 2,
-    padding: '12px 16px 10px',
-    borderBottom: '1px solid #dde3ea',
+    gap: 4,
+    padding: '12px 16px 14px',
+    background: '#1c3557',
+    borderBottom: 'none',
   },
-  logo: { height: 36, width: 'auto', maxWidth: 220 },
+  headerTop: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  icon: {
+    height: 38,
+    width: 38,
+    flexShrink: 0,
+    borderRadius: 8,
+  },
   appName: {
     fontFamily: 'Poppins, sans-serif',
     fontWeight: 700,
-    fontSize: 12,
-    color: 'var(--mid-blue)',
-    marginTop: 2,
+    fontSize: 20,
+    color: '#ffffff',
+    lineHeight: 1.1,
+  },
+  attribution: {
+    margin: 0,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.65)',
+    fontFamily: "'Open Sans', sans-serif",
+    fontWeight: 400,
+    paddingLeft: 2,
+  },
+  attributionLink: {
+    color: 'rgba(255,255,255,0.85)',
+    textDecoration: 'underline',
+    textDecorationColor: 'rgba(255,255,255,0.4)',
   },
   lookupBox: {
     padding: '10px 16px 8px',
@@ -708,4 +754,16 @@ const styles = {
     color: '#fff',
   },
   spinner: { fontSize: 13, color: 'var(--mid-blue)', animation: 'spin 1s linear infinite' },
+  geoRequestBtn: {
+    width: '100%',
+    padding: '9px 12px',
+    background: '#fef3c7',
+    color: '#92400e',
+    border: '1px solid #fcd34d',
+    borderRadius: 4,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textAlign: 'center',
+  },
 };

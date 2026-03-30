@@ -1,0 +1,73 @@
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { name, org, title, email, useCase } = req.body || {};
+  if (!name || !org || !title || !email || !useCase) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Email service not configured' });
+  }
+
+  const submittedAt = new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' });
+
+  const internalHtml = `
+    <p>A new unlimited access request has been submitted via District Mapper.</p>
+    <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Name</td><td>${name}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Organization</td><td>${org}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Title / Role</td><td>${title}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Email</td><td>${email}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Submitted</td><td>${submittedAt} CT</td></tr>
+    </table>
+    <p style="margin-top:16px"><strong>Use case:</strong></p>
+    <p style="background:#f5f5f5;padding:12px;border-radius:4px;font-size:13px">${useCase.replace(/\n/g, '<br>')}</p>
+  `;
+
+  const confirmationHtml = `
+    <p>Hi ${name},</p>
+    <p>Thanks for reaching out! We've received your request for unlimited access to District Mapper.</p>
+    <p>We'll review your request and be in touch within <strong>5 business days</strong>.</p>
+    <p>— The North Arrow team</p>
+  `;
+
+  async function sendEmail(to, subject, html) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'District Mapper <noreply@north-arrow.org>',
+        to,
+        subject,
+        html,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `Resend error ${response.status}`);
+    }
+  }
+
+  try {
+    await sendEmail(
+      'charles@north-arrow.org',
+      `Upgrade Request: ${name} — ${org}`,
+      internalHtml
+    );
+    await sendEmail(
+      email,
+      'Your District Mapper access request — North Arrow',
+      confirmationHtml
+    );
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(502).json({ error: err.message });
+  }
+}

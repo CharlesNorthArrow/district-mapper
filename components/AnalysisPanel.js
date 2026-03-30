@@ -1,14 +1,15 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { summarizeByLayer } from '../lib/pointInDistrict';
 import { buildFilteredCSV, downloadCSV } from '../lib/exportHelpers';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import ExportControls from './ExportControls';
+import FilterBar, { applyFilters } from './FilterBar';
 
-const NATIONAL_IDS = new Set(['congressional', 'us-senate']);
+const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
 
 function getScope(layerId) {
   if (NATIONAL_IDS.has(layerId)) return 'national';
-  if (layerId.startsWith('state-') || layerId.startsWith('school-')) return 'state';
+  if (layerId.startsWith('state-') || layerId.startsWith('school-') || layerId === 'incorporated-places' || layerId === 'zcta') return 'state';
   if (layerId.startsWith('council-')) return 'local';
   return 'custom';
 }
@@ -30,14 +31,28 @@ export default function AnalysisPanel({
   selectedDistrict,
   onDistrictSelect,
   onLayerIsolate,
+  onChoropleth,
+  onFilteredIndicesChange,
 }) {
   // 'overview' | null (falls back to first layer) | layerId
   const [selectedLayer, setSelectedLayer] = useState('overview');
   const [open, setOpen] = useState(true);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
+  const [activeFilters, setActiveFilters] = useState([]);
   const selectAllRef = useRef(null);
 
   const { points, originalRows, headers } = uploadedData;
+
+  const filteredPoints = useMemo(() => applyFilters(enrichedPoints, activeFilters), [enrichedPoints, activeFilters]);
+
+  // Notify parent when filter changes so it can sync the map
+  useEffect(() => {
+    if (activeFilters.length === 0) {
+      onFilteredIndicesChange?.(null); // null = clear filter (show all)
+    } else {
+      onFilteredIndicesChange?.(filteredPoints.map(p => p._globalIndex));
+    }
+  }, [filteredPoints, activeFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const numericFields = useMemo(() => {
     return headers.filter((h) => {
@@ -48,8 +63,8 @@ export default function AnalysisPanel({
 
   const layerSummary = useMemo(() => {
     if (activeLayers.length === 0) return {};
-    return summarizeByLayer(enrichedPoints, activeLayers, numericFields);
-  }, [enrichedPoints, activeLayers, numericFields]);
+    return summarizeByLayer(filteredPoints, activeLayers, numericFields);
+  }, [filteredPoints, activeLayers, numericFields]);
 
   const sortedLayers = useMemo(
     () => [...activeLayers].sort((a, b) => (SCOPE_ORDER[getScope(a)] ?? 99) - (SCOPE_ORDER[getScope(b)] ?? 99)),
@@ -60,13 +75,13 @@ export default function AnalysisPanel({
   const activeLayer = isOverview ? null : (selectedLayer || null);
   const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
   const unmatchedCount = activeLayer
-    ? enrichedPoints.filter((p) => p[activeLayer] == null).length
+    ? filteredPoints.filter((p) => p[activeLayer] == null).length
     : 0;
 
   const checkedRowCount = useMemo(() => {
     if (!activeLayer || checkedDistricts.size === 0) return 0;
-    return enrichedPoints.filter((p) => checkedDistricts.has(p[activeLayer])).length;
-  }, [enrichedPoints, activeLayer, checkedDistricts]);
+    return filteredPoints.filter((p) => checkedDistricts.has(p[activeLayer])).length;
+  }, [filteredPoints, activeLayer, checkedDistricts]);
 
   useMemo(() => {
     if (!selectAllRef.current || rows.length === 0) return;
@@ -76,14 +91,24 @@ export default function AnalysisPanel({
     selectAllRef.current.indeterminate = someChecked && !allChecked;
   }, [checkedDistricts, rows]);
 
+  // Keep choropleth in sync when enriched data updates while a layer tab is active
+  useEffect(() => {
+    if (!activeLayer || !onChoropleth) return;
+    const counts = Object.fromEntries((layerSummary[activeLayer] || []).map(r => [r.districtName, r.count]));
+    onChoropleth(activeLayer, counts, LAYER_CONFIG[activeLayer]?.districtField);
+  }, [layerSummary, activeLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleTabClick(id) {
     setSelectedLayer(id);
     setCheckedDistricts(new Set());
     if (selectedDistrict) onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName);
     if (id === 'overview') {
       onLayerIsolate?.(null);
+      onChoropleth?.(null);
     } else {
       onLayerIsolate?.(id);
+      const counts = Object.fromEntries((layerSummary[id] || []).map(r => [r.districtName, r.count]));
+      onChoropleth?.(id, counts, LAYER_CONFIG[id]?.districtField);
     }
   }
 
@@ -145,6 +170,14 @@ export default function AnalysisPanel({
 
       {open && (
         <div style={panelBody}>
+          {/* Filter bar — always shown when data is loaded */}
+          <FilterBar
+            headers={headers}
+            sampleRows={originalRows.slice(0, 50)}
+            activeFilters={activeFilters}
+            onFiltersChange={setActiveFilters}
+          />
+
           {activeLayers.length > 0 && (
             <>
               {/* Tab bar */}

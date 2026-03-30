@@ -1,9 +1,19 @@
 // GET /api/boundaries?layer=congressional
 // GET /api/boundaries?layer=state-senate&stateFips=17
+// GET /api/boundaries?layer=zcta&stateFips=17   (byBbox mode — uses state bounding box)
 // Fetches boundary GeoJSON from ArcGIS Living Atlas or TIGERweb depending on layer config.
 // Returns GeoJSON FeatureCollection.
 
 import { LAYER_CONFIG } from '../../lib/layerConfig';
+import { STATE_FIPS } from '../../lib/stateFips';
+import { STATE_BBOX } from '../../lib/geoSuggest';
+
+// Build FIPS → bbox lookup once at module load
+const FIPS_TO_BBOX = Object.fromEntries(
+  Object.entries(STATE_FIPS)
+    .map(([name, fips]) => [fips, STATE_BBOX[name]])
+    .filter(([, bbox]) => bbox != null)
+);
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -21,7 +31,7 @@ export default async function handler(req, res) {
     return res.status(404).json({ error: `Unknown layer: ${layer}` });
   }
 
-  if (config.queryMode === 'byState' && !stateFips) {
+  if ((config.queryMode === 'byState' || config.queryMode === 'byBbox') && !stateFips) {
     return res.status(400).json({ error: `layer ${layer} requires stateFips param` });
   }
 
@@ -29,15 +39,13 @@ export default async function handler(req, res) {
   let where;
   if (config.queryMode === 'national') {
     where = `${config.districtField} IS NOT NULL`;
-    if (config.whereExtra) {
-      where += ` AND (${config.whereExtra})`;
-    }
+    if (config.whereExtra) where += ` AND (${config.whereExtra})`;
+  } else if (config.queryMode === 'byBbox') {
+    where = '1=1';
   } else {
     // byState — stateField is either STATE (TIGERweb) or STATEFP (Living Atlas)
     where = `${config.stateField}='${stateFips}'`;
-    if (config.whereExtra) {
-      where += ` AND (${config.whereExtra})`;
-    }
+    if (config.whereExtra) where += ` AND (${config.whereExtra})`;
   }
 
   const params = new URLSearchParams({
@@ -49,6 +57,16 @@ export default async function handler(req, res) {
     maxAllowableOffset: String(config.maxAllowableOffset),
     resultRecordCount: String(config.resultRecordCount),
   });
+
+  // byBbox: filter by state bounding box using ArcGIS spatial query
+  if (config.queryMode === 'byBbox') {
+    const bbox = FIPS_TO_BBOX[stateFips];
+    if (!bbox) return res.status(400).json({ error: `No bounding box found for FIPS ${stateFips}` });
+    params.set('geometry', bbox.join(','));
+    params.set('geometryType', 'esriGeometryEnvelope');
+    params.set('inSR', '4326');
+    params.set('spatialRel', 'esriSpatialRelIntersects');
+  }
 
   const url = `${config.endpoint}/query?${params}`;
 
