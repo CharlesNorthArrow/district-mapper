@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { summarizeByLayer } from '../lib/pointInDistrict';
 import { buildFilteredCSV, downloadCSV } from '../lib/exportHelpers';
 import { LAYER_CONFIG } from '../lib/layerConfig';
+import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import ExportControls from './ExportControls';
 import FilterBar, { applyFilters } from './FilterBar';
 
@@ -15,6 +16,18 @@ function getScope(layerId) {
 }
 
 const SCOPE_ORDER = { national: 0, state: 1, local: 2, custom: 3 };
+
+function getLayerCfg(layerId) {
+  if (LAYER_CONFIG[layerId]) {
+    return { districtField: LAYER_CONFIG[layerId].districtField, stateField: LAYER_CONFIG[layerId].stateField };
+  }
+  if (layerId?.startsWith('council-')) {
+    const slug = layerId.slice('council-'.length);
+    const city = CITY_COUNCIL_REGISTRY[slug];
+    return { districtField: city?.districtField || 'NAME', stateField: null };
+  }
+  return { districtField: 'NAME', stateField: null };
+}
 
 const PARTY_BG    = { D: '#dbeafe', R: '#fee2e2', I: '#ede9fe' };
 const PARTY_FG    = { D: '#1d4ed8', R: '#dc2626', I: '#7c3aed' };
@@ -138,9 +151,9 @@ export default function AnalysisPanel({
   // Keep choropleth in sync when enriched data updates while a layer tab is active
   useEffect(() => {
     if (!activeLayer || !onChoropleth) return;
-    const cfg = LAYER_CONFIG[activeLayer];
+    const cfg = getLayerCfg(activeLayer);
     const counts = Object.fromEntries((layerSummary[activeLayer] || []).map(r => [r.districtName, r.count]));
-    onChoropleth(activeLayer, counts, cfg?.districtField, cfg?.stateField);
+    onChoropleth(activeLayer, counts, cfg.districtField, cfg.stateField);
   }, [layerSummary, activeLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleTabClick(id) {
@@ -152,9 +165,9 @@ export default function AnalysisPanel({
       onChoropleth?.(null);
     } else {
       onLayerIsolate?.(id);
-      const cfg = LAYER_CONFIG[id];
+      const cfg = getLayerCfg(id);
       const counts = Object.fromEntries((layerSummary[id] || []).map(r => [r.districtName, r.count]));
-      onChoropleth?.(id, counts, cfg?.districtField, cfg?.stateField);
+      onChoropleth?.(id, counts, cfg.districtField, cfg.stateField);
     }
   }
 

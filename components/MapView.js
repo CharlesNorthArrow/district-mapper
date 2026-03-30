@@ -236,25 +236,43 @@ const MapView = forwardRef(function MapView(_, ref) {
       // have both a STATE (FIPS) and NAME field. Build composite keys "17|10" to avoid
       // shading district 10 in every state when only IL-10 has constituents.
       let featureKeyExpr;
-      let buildKey;
+      let buildKeys; // returns array of keys for a single district name (may be 1 or 2)
       if (stateField) {
-        featureKeyExpr = ['concat', ['get', stateField], '|', ['get', districtField]];
-        buildKey = (name) => {
-          if (!name.includes(' – ')) return null; // can't build composite key, skip
-          const abbr = name.split(' – ')[0];
-          const districtName = name.split(' – ').slice(1).join(' – ');
-          const fips = ABBR_TO_FIPS[abbr];
-          return fips ? `${fips}|${districtName}` : null;
+        // Use composite "FIPS|districtName" when STATE is present; fall back to plain name
+        // for features that pre-date the outFields fix and lack the STATE property.
+        featureKeyExpr = ['case',
+          ['has', stateField],
+          ['concat', ['get', stateField], '|', ['get', districtField]],
+          ['get', districtField],
+        ];
+        buildKeys = (name) => {
+          const keys = [];
+          if (name.includes(' – ')) {
+            const abbr = name.split(' – ')[0];
+            const districtName = name.split(' – ').slice(1).join(' – ');
+            const fips = ABBR_TO_FIPS[abbr];
+            if (fips) keys.push(`${fips}|${districtName}`);
+            keys.push(districtName); // plain-name fallback for cached features without STATE
+          } else {
+            keys.push(name);
+          }
+          return keys;
         };
       } else {
         featureKeyExpr = ['get', districtField];
-        buildKey = (name) => name;
+        buildKeys = (name) => [name];
       }
 
-      const matchPairs = entries.flatMap(([name, count]) => {
-        const key = buildKey(name);
-        return key != null ? [key, count / maxCount] : [];
-      });
+      // Use a Map to deduplicate keys (a plain districtName key must not appear twice
+      // if two different state-qualified names share the same plain name).
+      const pairMap = new Map();
+      for (const [name, count] of entries) {
+        const ratio = count / maxCount;
+        for (const key of buildKeys(name)) {
+          if (!pairMap.has(key)) pairMap.set(key, ratio);
+        }
+      }
+      const matchPairs = [...pairMap.entries()].flat();
 
       if (matchPairs.length === 0) {
         map.setPaintProperty(fillId, 'fill-color', layerColor);
