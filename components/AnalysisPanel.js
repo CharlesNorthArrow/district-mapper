@@ -16,23 +16,36 @@ function getScope(layerId) {
 
 const SCOPE_ORDER = { national: 0, state: 1, local: 2, custom: 3 };
 
-const PARTY_COLOR = { D: '#3b82f6', R: '#ef4444' };
+const PARTY_BG    = { D: '#dbeafe', R: '#fee2e2', I: '#ede9fe' };
+const PARTY_FG    = { D: '#1d4ed8', R: '#dc2626', I: '#7c3aed' };
+const PARTY_LABEL = { D: 'Dem', R: 'Rep', I: 'Ind' };
+
+function lookupRep(districtName, officials) {
+  if (!officials || !districtName.includes(' – ')) return null;
+  const abbr = districtName.split(' – ')[0];
+  const distNum = districtName.split(' – ')[1];
+  return officials[`${abbr}|${distNum}`] || null;
+}
 
 function renderRep(districtName, officials) {
   if (!officials) return <span style={{ color: '#c5d0da', fontSize: 11 }}>loading…</span>;
-  if (!districtName.includes(' – ')) return <span style={{ color: '#c5d0da' }}>—</span>;
-  const abbr = districtName.split(' – ')[0];
-  const distNum = districtName.split(' – ')[1];
-  const rep = officials[`${abbr}|${distNum}`];
+  const rep = lookupRep(districtName, officials);
   if (!rep) return <span style={{ color: '#c5d0da' }}>—</span>;
-  const dotColor = PARTY_COLOR[rep.party] || '#8b5cf6';
+  return rep.url
+    ? <a href={rep.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1c3557', fontSize: 12, textDecoration: 'none' }}>{rep.name}</a>
+    : <span style={{ fontSize: 12 }}>{rep.name}</span>;
+}
+
+function renderParty(districtName, officials) {
+  if (!officials) return null;
+  const rep = lookupRep(districtName, officials);
+  if (!rep) return <span style={{ color: '#c5d0da' }}>—</span>;
+  const bg    = PARTY_BG[rep.party]    || '#f1f5f9';
+  const color = PARTY_FG[rep.party]    || '#64748b';
+  const label = PARTY_LABEL[rep.party] || rep.party;
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-      {rep.url
-        ? <a href={rep.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1c3557', fontSize: 12, textDecoration: 'none' }}>{rep.name}</a>
-        : <span style={{ fontSize: 12 }}>{rep.name}</span>
-      }
+    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: bg, color }}>
+      {label}
     </span>
   );
 }
@@ -209,6 +222,9 @@ export default function AnalysisPanel({
             sampleRows={originalRows.slice(0, 50)}
             activeFilters={activeFilters}
             onFiltersChange={setActiveFilters}
+            activeLayers={activeLayers}
+            allEnrichedPoints={enrichedPoints}
+            getLayerName={getDisplayName}
           />
 
           {activeLayers.length > 0 && (
@@ -334,6 +350,9 @@ export default function AnalysisPanel({
                           {activeLayer === 'congressional' && (
                             <th style={th}>Representative</th>
                           )}
+                          {activeLayer === 'congressional' && (
+                            <th style={{ ...th, textAlign: 'center' }}>Party</th>
+                          )}
                           <th style={{ ...th, textAlign: 'right' }}>Points</th>
                           <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
                         </tr>
@@ -362,6 +381,9 @@ export default function AnalysisPanel({
                               {activeLayer === 'congressional' && (
                                 <td style={td}>{renderRep(row.districtName, officials)}</td>
                               )}
+                              {activeLayer === 'congressional' && (
+                                <td style={{ ...td, textAlign: 'center' }}>{renderParty(row.districtName, officials)}</td>
+                              )}
                               <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
                               <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
                             </tr>
@@ -371,6 +393,7 @@ export default function AnalysisPanel({
                           <tr style={{ background: '#fff5f5' }}>
                             <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
                             <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
+                            {activeLayer === 'congressional' && <td style={td} />}
                             {activeLayer === 'congressional' && <td style={td} />}
                             <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
                             <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>

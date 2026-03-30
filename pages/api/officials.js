@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   if (cache) return res.status(200).json(cache);
   try {
     const resp = await fetch(
-      'https://theunitedstates.io/congress-legislators/legislators-current.json',
+      'https://unitedstates.github.io/congress-legislators/legislators-current.json',
       { headers: { 'User-Agent': 'district-mapper/1.0' } }
     );
     if (!resp.ok) throw new Error(`Upstream HTTP ${resp.status}`);

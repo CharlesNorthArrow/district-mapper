@@ -305,11 +305,25 @@ export default function UploadModal({ onClose, onUploadComplete }) {
         {step === 'idle' && (
           <div style={body}>
             <p style={hint}>Upload a CSV or Excel file with addresses or coordinates.</p>
+            <div style={tierBox}>
+              <p style={tierBoxTitle}>Free tier limits</p>
+              <div style={tierBoxRow}>
+                <span>Coordinate data (lat / lng columns)</span>
+                <span style={tierBoxValue}>{COORDS_LIMIT.toLocaleString()} rows</span>
+              </div>
+              <div style={tierBoxRow}>
+                <span>Address geocoding</span>
+                <span style={tierBoxValue}>{GEOCODE_LIMIT.toLocaleString()} rows</span>
+              </div>
+              <button style={tierUpgradeLink} onClick={() => setShowUpgradeModal(true)}>
+                Need more? Request unlimited access →
+              </button>
+            </div>
             <input
               ref={fileRef}
               type="file"
               accept=".csv,.xlsx,.xls"
-              style={{ marginTop: 8 }}
+              style={{ marginTop: 12 }}
               onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
             />
             {error && <p style={errorStyle}>{error}</p>}
@@ -690,6 +704,19 @@ const closeBtn = {
 };
 const body = { padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 8 };
 const hint = { fontSize: 13, color: '#4a5568', margin: 0 };
+const tierBox = {
+  marginTop: 10, padding: '10px 14px', background: '#f0f4f8',
+  border: '1px solid #dde3ea', borderRadius: 6,
+  display: 'flex', flexDirection: 'column', gap: 5,
+};
+const tierBoxTitle = { fontSize: 11, fontWeight: 700, color: '#7a8fa6', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 };
+const tierBoxRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#1c3557' };
+const tierBoxValue = { fontWeight: 700 };
+const tierUpgradeLink = {
+  background: 'none', border: 'none', padding: 0, margin: 0,
+  fontSize: 11, color: 'var(--mid-blue)', cursor: 'pointer',
+  textDecoration: 'underline', textAlign: 'left',
+};
 const errorStyle = { fontSize: 13, color: 'var(--red)', margin: 0 };
 const warningStyle = { fontSize: 12, color: '#b45309', background: '#fef3c7', borderRadius: 3, padding: '6px 10px', margin: 0 };
 const detectedBadge = { fontSize: 13, fontWeight: 600, color: '#166534', background: '#dcfce7', borderRadius: 3, padding: '6px 10px', margin: 0 };

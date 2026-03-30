@@ -19,7 +19,7 @@ function isNumericCol(colName, sampleRows) {
   return vals.length > 0 && vals.slice(0, 20).filter(v => !isNaN(parseFloat(v))).length > vals.slice(0, 20).length * 0.7;
 }
 
-function evalFilter(point, filter) {
+function evalDataFilter(point, filter) {
   const raw = point[filter.column];
   const val = String(raw ?? '');
   const fval = filter.value;
@@ -39,19 +39,55 @@ function evalFilter(point, filter) {
 
 export function applyFilters(points, filters) {
   if (filters.length === 0) return points;
-  return points.filter(p => filters.every(f => evalFilter(p, f)));
+  return points.filter(p => filters.every(f => {
+    if (f.type === 'district') {
+      const pointVal = p[f.layerId] ?? null;
+      const match = pointVal === f.value;
+      return f.mode === 'include' ? match : !match;
+    }
+    return evalDataFilter(p, f);
+  }));
 }
 
-export default function FilterBar({ headers, sampleRows, activeFilters, onFiltersChange }) {
-  const [adding, setAdding] = useState(false);
+// adding: null | 'data' | 'district'
+export default function FilterBar({
+  headers,
+  sampleRows,
+  activeFilters,
+  onFiltersChange,
+  activeLayers,
+  allEnrichedPoints,
+  getLayerName,
+}) {
+  const [adding, setAdding] = useState(null);
+
+  // Draft state for program-data filter
   const [draft, setDraft] = useState({ column: headers[0] || '', condition: 'contains', value: '' });
 
-  const numericCols = useMemo(() => new Set(headers.filter(h => isNumericCol(h, sampleRows))), [headers, sampleRows]);
+  // Draft state for district filter
+  const [draftDistrict, setDraftDistrict] = useState({
+    layerId: activeLayers?.[0] || '',
+    mode: 'include',
+    value: '',
+  });
+
+  const numericCols = useMemo(
+    () => new Set(headers.filter(h => isNumericCol(h, sampleRows))),
+    [headers, sampleRows]
+  );
+
+  // Unique sorted district values for the selected layer
+  const districtOptions = useMemo(() => {
+    if (!draftDistrict.layerId || !allEnrichedPoints?.length) return [];
+    const vals = new Set(
+      allEnrichedPoints.map(p => p[draftDistrict.layerId]).filter(v => v != null && v !== '')
+    );
+    return [...vals].sort();
+  }, [draftDistrict.layerId, allEnrichedPoints]);
 
   function setDraftField(k, v) {
     setDraft(prev => {
       const next = { ...prev, [k]: v };
-      // Reset condition to appropriate default when column type changes
       if (k === 'column') {
         const isNum = numericCols.has(v);
         next.condition = isNum ? '=' : 'contains';
@@ -61,11 +97,19 @@ export default function FilterBar({ headers, sampleRows, activeFilters, onFilter
     });
   }
 
-  function addFilter() {
+  function addDataFilter() {
     if (!draft.column || !draft.value.trim()) return;
-    onFiltersChange([...activeFilters, { ...draft, value: draft.value.trim() }]);
+    onFiltersChange([...activeFilters, { type: 'data', ...draft, value: draft.value.trim() }]);
     setDraft({ column: draft.column, condition: draft.condition, value: '' });
-    setAdding(false);
+    setAdding(null);
+  }
+
+  function addDistrictFilter() {
+    if (!draftDistrict.layerId || !draftDistrict.value) return;
+    const layerName = getLayerName?.(draftDistrict.layerId) || draftDistrict.layerId;
+    onFiltersChange([...activeFilters, { type: 'district', ...draftDistrict, layerName }]);
+    setDraftDistrict(prev => ({ ...prev, value: '' }));
+    setAdding(null);
   }
 
   function removeFilter(i) {
@@ -74,6 +118,7 @@ export default function FilterBar({ headers, sampleRows, activeFilters, onFilter
 
   const isNum = numericCols.has(draft.column);
   const conditions = isNum ? NUM_CONDITIONS : TEXT_CONDITIONS;
+  const hasDistrictLayers = activeLayers?.length > 0;
 
   return (
     <div style={wrap}>
@@ -81,8 +126,11 @@ export default function FilterBar({ headers, sampleRows, activeFilters, onFilter
       {activeFilters.length > 0 && (
         <div style={chipRow}>
           {activeFilters.map((f, i) => (
-            <span key={i} style={chip}>
-              {f.column} {f.condition} "{f.value}"
+            <span key={i} style={f.type === 'district' ? districtChip : dataChip}>
+              {f.type === 'district'
+                ? <>{f.layerName} <em style={{ fontStyle: 'normal', opacity: 0.8 }}>{f.mode}s</em> &ldquo;{f.value}&rdquo;</>
+                : <>{f.column} {f.condition} &ldquo;{f.value}&rdquo;</>
+              }
               <button style={chipX} onClick={() => removeFilter(i)}>×</button>
             </span>
           ))}
@@ -90,9 +138,10 @@ export default function FilterBar({ headers, sampleRows, activeFilters, onFilter
         </div>
       )}
 
-      {/* Add filter row */}
-      {adding ? (
+      {/* Add filter UI */}
+      {adding === 'data' && (
         <div style={addRow}>
+          <span style={filterTypeLabel}>Program Data</span>
           <select style={sel} value={draft.column} onChange={e => setDraftField('column', e.target.value)}>
             {headers.map(h => <option key={h} value={h}>{h}</option>)}
           </select>
@@ -104,16 +153,61 @@ export default function FilterBar({ headers, sampleRows, activeFilters, onFilter
             placeholder="value"
             value={draft.value}
             onChange={e => setDraftField('value', e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') addFilter(); if (e.key === 'Escape') setAdding(false); }}
+            onKeyDown={e => { if (e.key === 'Enter') addDataFilter(); if (e.key === 'Escape') setAdding(null); }}
             autoFocus
           />
-          <button style={applyBtn} onClick={addFilter} disabled={!draft.value.trim()}>Add</button>
-          <button style={cancelBtn} onClick={() => setAdding(false)}>Cancel</button>
+          <button style={applyBtn} onClick={addDataFilter} disabled={!draft.value.trim()}>Add</button>
+          <button style={cancelBtn} onClick={() => setAdding(null)}>Cancel</button>
         </div>
-      ) : (
-        <button style={filterToggle} onClick={() => setAdding(true)}>
-          + Filter data
-        </button>
+      )}
+
+      {adding === 'district' && (
+        <div style={addRow}>
+          <span style={filterTypeLabel}>District</span>
+          <select
+            style={sel}
+            value={draftDistrict.layerId}
+            onChange={e => setDraftDistrict(prev => ({ ...prev, layerId: e.target.value, value: '' }))}
+          >
+            {(activeLayers || []).map(id => (
+              <option key={id} value={id}>{getLayerName?.(id) || id}</option>
+            ))}
+          </select>
+          <select
+            style={{ ...sel, width: 90 }}
+            value={draftDistrict.mode}
+            onChange={e => setDraftDistrict(prev => ({ ...prev, mode: e.target.value }))}
+          >
+            <option value="include">includes</option>
+            <option value="exclude">excludes</option>
+          </select>
+          <select
+            style={{ ...sel, minWidth: 120 }}
+            value={draftDistrict.value}
+            onChange={e => setDraftDistrict(prev => ({ ...prev, value: e.target.value }))}
+          >
+            <option value="">— select district —</option>
+            {districtOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <button style={applyDistrictBtn} onClick={addDistrictFilter} disabled={!draftDistrict.value}>Add</button>
+          <button style={cancelBtn} onClick={() => setAdding(null)}>Cancel</button>
+        </div>
+      )}
+
+      {adding === null && (
+        <div style={buttonRow}>
+          <button style={filterToggle} onClick={() => setAdding('data')}>
+            + Filter by Program Data
+          </button>
+          {hasDistrictLayers && (
+            <button style={districtFilterToggle} onClick={() => {
+              setDraftDistrict(prev => ({ ...prev, layerId: activeLayers[0], value: '' }));
+              setAdding('district');
+            }}>
+              + Filter by District
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -121,19 +215,31 @@ export default function FilterBar({ headers, sampleRows, activeFilters, onFilter
 
 const wrap = { padding: '6px 12px 4px', borderBottom: '1px solid #eef1f4', display: 'flex', flexDirection: 'column', gap: 4 };
 const chipRow = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 };
-const chip = {
+const dataChip = {
   display: 'inline-flex', alignItems: 'center', gap: 4,
   background: '#dbeafe', border: '1px solid #93c5fd', borderRadius: 10,
   fontSize: 11, color: '#1e3a8a', padding: '2px 8px',
 };
+const districtChip = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 10,
+  fontSize: 11, color: '#065f46', padding: '2px 8px',
+};
 const chipX = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#60a5fa', padding: 0, lineHeight: 1 };
 const clearAll = { background: 'none', border: 'none', fontSize: 11, color: '#7a8fa6', cursor: 'pointer', textDecoration: 'underline', padding: 0 };
 const addRow = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' };
+const filterTypeLabel = { fontSize: 10, fontWeight: 700, color: '#7a8fa6', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' };
 const sel = { padding: '4px 6px', border: '1px solid #c5d0da', borderRadius: 3, fontSize: 12, flex: 1, minWidth: 80 };
 const valInput = { padding: '4px 8px', border: '1px solid #c5d0da', borderRadius: 3, fontSize: 12, flex: 1, minWidth: 80 };
 const applyBtn = { padding: '4px 10px', background: '#1c3557', color: '#fff', border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
+const applyDistrictBtn = { padding: '4px 10px', background: '#047857', color: '#fff', border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
 const cancelBtn = { background: 'none', border: 'none', fontSize: 11, color: '#7a8fa6', cursor: 'pointer', textDecoration: 'underline' };
+const buttonRow = { display: 'flex', gap: 6, flexWrap: 'wrap' };
 const filterToggle = {
-  alignSelf: 'flex-start', background: 'none', border: '1px dashed #c5d0da', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, color: '#467c9d', cursor: 'pointer', padding: '3px 10px',
+  background: 'none', border: '1px dashed #93c5fd', borderRadius: 3,
+  fontSize: 11, fontWeight: 600, color: '#1d4ed8', cursor: 'pointer', padding: '3px 10px',
+};
+const districtFilterToggle = {
+  background: 'none', border: '1px dashed #6ee7b7', borderRadius: 3,
+  fontSize: 11, fontWeight: 600, color: '#047857', cursor: 'pointer', padding: '3px 10px',
 };
