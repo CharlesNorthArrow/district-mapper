@@ -95,6 +95,7 @@ export default function AnalysisPanel({
   const [open, setOpen] = useState(true);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const [activeFilters, setActiveFilters] = useState([]);
+  const [filterAdding, setFilterAdding] = useState(null); // null | 'data' | 'district'
   const [officials, setOfficials] = useState(null); // null = not fetched yet
   const selectAllRef = useRef(null);
 
@@ -230,6 +231,22 @@ export default function AnalysisPanel({
           {activeLayers.length === 0 && (
             <span style={hintStyle}>Enable boundary layers to analyze districts</span>
           )}
+          {filterAdding === null ? (
+            <>
+              <button style={headerFilterBtn} onClick={() => setFilterAdding('data')}>
+                + Program Data
+              </button>
+              {activeLayers.length > 0 && (
+                <button style={headerDistrictFilterBtn} onClick={() => setFilterAdding('district')}>
+                  + District
+                </button>
+              )}
+            </>
+          ) : (
+            <span style={{ fontSize: 11, color: '#7a8fa6', fontStyle: 'italic' }}>
+              {filterAdding === 'data' ? 'Program Data filter' : 'District filter'}
+            </span>
+          )}
           <ExportControls
             originalRows={originalRows}
             enrichedPoints={enrichedPoints}
@@ -256,6 +273,8 @@ export default function AnalysisPanel({
             activeLayers={activeLayers}
             allEnrichedPoints={enrichedPoints}
             getLayerName={getDisplayName}
+            adding={filterAdding}
+            onAddingChange={setFilterAdding}
           />
 
           {activeLayers.length > 0 && (
@@ -450,6 +469,14 @@ const panelHeader = {
 const panelTitle = { fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--dark-navy)' };
 const hintStyle = { fontSize: 12, color: '#7a8fa6' };
 const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
+const headerFilterBtn = {
+  background: 'none', border: '1px dashed #93c5fd', borderRadius: 3,
+  fontSize: 11, fontWeight: 600, color: '#1d4ed8', cursor: 'pointer', padding: '2px 8px',
+};
+const headerDistrictFilterBtn = {
+  background: 'none', border: '1px dashed #6ee7b7', borderRadius: 3,
+  fontSize: 11, fontWeight: 600, color: '#047857', cursor: 'pointer', padding: '2px 8px',
+};
 const panelBody = { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' };
 const layerTabs = { display: 'flex', gap: 4, padding: '8px 12px', flexShrink: 0, flexWrap: 'wrap' };
 const tabBtn = {

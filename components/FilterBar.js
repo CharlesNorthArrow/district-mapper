@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 
 const TEXT_CONDITIONS = [
   { value: 'contains', label: 'contains' },
@@ -50,6 +50,7 @@ export function applyFilters(points, filters) {
 }
 
 // adding: null | 'data' | 'district'
+// Accepts optional controlled props `adding` + `onAddingChange`; falls back to internal state.
 export default function FilterBar({
   headers,
   sampleRows,
@@ -58,8 +59,12 @@ export default function FilterBar({
   activeLayers,
   allEnrichedPoints,
   getLayerName,
+  adding: addingProp,
+  onAddingChange,
 }) {
-  const [adding, setAdding] = useState(null);
+  const [addingInternal, setAddingInternal] = useState(null);
+  const adding = addingProp !== undefined ? addingProp : addingInternal;
+  const setAdding = onAddingChange || setAddingInternal;
 
   // Draft state for program-data filter
   const [draft, setDraft] = useState({ column: headers[0] || '', condition: 'contains', value: '' });
@@ -116,9 +121,18 @@ export default function FilterBar({
     onFiltersChange(activeFilters.filter((_, idx) => idx !== i));
   }
 
+  // When the parent opens the district form, reset to first layer so it's always fresh
+  const prevAdding = useRef(null);
+  if (adding === 'district' && prevAdding.current !== 'district') {
+    setDraftDistrict(prev => ({ ...prev, layerId: activeLayers?.[0] || prev.layerId, value: '' }));
+  }
+  prevAdding.current = adding;
+
   const isNum = numericCols.has(draft.column);
   const conditions = isNum ? NUM_CONDITIONS : TEXT_CONDITIONS;
-  const hasDistrictLayers = activeLayers?.length > 0;
+
+  // Nothing to show — don't render wrapper at all
+  if (!activeFilters.length && adding === null) return null;
 
   return (
     <div style={wrap}>
@@ -194,21 +208,6 @@ export default function FilterBar({
         </div>
       )}
 
-      {adding === null && (
-        <div style={buttonRow}>
-          <button style={filterToggle} onClick={() => setAdding('data')}>
-            + Filter by Program Data
-          </button>
-          {hasDistrictLayers && (
-            <button style={districtFilterToggle} onClick={() => {
-              setDraftDistrict(prev => ({ ...prev, layerId: activeLayers[0], value: '' }));
-              setAdding('district');
-            }}>
-              + Filter by District
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -234,12 +233,3 @@ const valInput = { padding: '4px 8px', border: '1px solid #c5d0da', borderRadius
 const applyBtn = { padding: '4px 10px', background: '#1c3557', color: '#fff', border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
 const applyDistrictBtn = { padding: '4px 10px', background: '#047857', color: '#fff', border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
 const cancelBtn = { background: 'none', border: 'none', fontSize: 11, color: '#7a8fa6', cursor: 'pointer', textDecoration: 'underline' };
-const buttonRow = { display: 'flex', gap: 6, flexWrap: 'wrap' };
-const filterToggle = {
-  background: 'none', border: '1px dashed #93c5fd', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, color: '#1d4ed8', cursor: 'pointer', padding: '3px 10px',
-};
-const districtFilterToggle = {
-  background: 'none', border: '1px dashed #6ee7b7', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, color: '#047857', cursor: 'pointer', padding: '3px 10px',
-};
