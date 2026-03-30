@@ -35,11 +35,18 @@ const PARTY_LABEL = { D: 'Dem', R: 'Rep', I: 'Ind' };
 
 function lookupRep(districtName, officials) {
   if (!officials || !districtName.includes(' – ')) return null;
-  const abbr = districtName.split(' – ')[0];
-  const rawNum = districtName.split(' – ')[1];
-  // TIGERweb NAME may be zero-padded ("05"); officials keys use plain integers ("5")
-  const distNum = parseInt(rawNum, 10);
-  if (isNaN(distNum)) return null;
+  const parts = districtName.split(' – ');
+  const abbr = parts[0];
+  const rawNum = parts.slice(1).join(' – '); // e.g. "Congressional District 1"
+
+  let distNum;
+  if (/at.?large/i.test(rawNum)) {
+    distNum = 0; // at-large districts are keyed as 0 in the legislators JSON
+  } else {
+    const m = rawNum.match(/\d+/);
+    distNum = m ? parseInt(m[0], 10) : null;
+  }
+  if (distNum === null) return null;
   return officials[`${abbr}|${distNum}`] || null;
 }
 
