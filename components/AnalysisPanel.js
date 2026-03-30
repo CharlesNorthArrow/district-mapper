@@ -72,7 +72,6 @@ function renderParty(districtName, officials) {
     </span>
   );
 }
-const SCOPE_LABELS = { national: 'National', state: 'State', local: 'Local', custom: 'Custom' };
 const SCOPE_COLORS = {
   national: { active: '#1c3557', inactive: '#e8edf2', activeText: '#fff', inactiveText: '#1c3557' },
   state:    { active: '#467c9d', inactive: '#deeaf3', activeText: '#fff', inactiveText: '#2c5a75' },
@@ -231,6 +230,15 @@ export default function AnalysisPanel({
           {activeLayers.length === 0 && (
             <span style={hintStyle}>Enable boundary layers to analyze districts</span>
           )}
+          <ExportControls
+            originalRows={originalRows}
+            enrichedPoints={enrichedPoints}
+            activeLayers={activeLayers}
+            layerSummary={layerSummary}
+            numericFields={numericFields}
+            pointCount={points.length}
+            compact
+          />
           <button style={toggleBtn} onClick={() => setOpen((o) => !o)}>
             {open ? '▼' : '▲'}
           </button>
@@ -263,10 +271,7 @@ export default function AnalysisPanel({
                   }}
                   onClick={() => handleTabClick('overview')}
                 >
-                  <span>Overview</span>
-                  <span style={{ fontSize: 9, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: isOverview ? 0.8 : 0.65, marginTop: 1, display: 'block' }}>
-                    All layers
-                  </span>
+                  Overview
                 </button>
 
                 {/* Per-layer tabs */}
@@ -284,10 +289,7 @@ export default function AnalysisPanel({
                       }}
                       onClick={() => handleTabClick(id)}
                     >
-                      <span>{getDisplayName(id)}</span>
-                      <span style={{ fontSize: 9, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: isActive ? 0.8 : 0.65, marginTop: 1, display: 'block' }}>
-                        {SCOPE_LABELS[scope]}
-                      </span>
+                      {getDisplayName(id)}
                     </button>
                   );
                 })}
@@ -306,9 +308,6 @@ export default function AnalysisPanel({
                     return (
                       <div key={layerId} style={{ ...overviewCard, borderTopColor: colors.active }}>
                         <div style={overviewCardHead}>
-                          <span style={{ ...overviewScopePill, background: colors.inactive, color: colors.inactiveText }}>
-                            {SCOPE_LABELS[scope]}
-                          </span>
                           <span style={overviewLayerName}>{getDisplayName(layerId)}</span>
                         </div>
                         <div style={overviewStats}>
@@ -432,14 +431,6 @@ export default function AnalysisPanel({
             </>
           )}
 
-          <ExportControls
-            originalRows={originalRows}
-            enrichedPoints={enrichedPoints}
-            activeLayers={activeLayers}
-            layerSummary={layerSummary}
-            numericFields={numericFields}
-            pointCount={points.length}
-          />
         </div>
       )}
     </div>
@@ -464,7 +455,6 @@ const layerTabs = { display: 'flex', gap: 4, padding: '8px 12px', flexShrink: 0,
 const tabBtn = {
   padding: '4px 10px', border: 'none', borderRadius: 3,
   fontSize: 11, fontWeight: 600, cursor: 'pointer',
-  display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.3,
 };
 const downloadBar = {
   display: 'flex', alignItems: 'center', gap: 10, padding: '5px 12px',

@@ -76,8 +76,10 @@ export default function ExportControls({
   layerSummary,
   numericFields,
   pointCount,
+  compact = false,
 }) {
   const [pdfLoading, setPdfLoading] = useState(false);
+  const disabled = activeLayers.length === 0;
 
   function handleCSV() {
     const csv = buildEnrichedCSV(originalRows, enrichedPoints, activeLayers);
@@ -107,15 +109,28 @@ export default function ExportControls({
     }
   }
 
+  if (compact) {
+    return (
+      <>
+        <button style={btnPrimary} onClick={handleCSV} disabled={disabled} title="Download Enriched CSV">
+          CSV
+        </button>
+        <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading} title="Download PDF Report">
+          {pdfLoading ? '…' : 'PDF'}
+        </button>
+      </>
+    );
+  }
+
   return (
     <div style={container}>
-      <button style={btnPrimary} onClick={handleCSV} disabled={activeLayers.length === 0}>
+      <button style={btnPrimary} onClick={handleCSV} disabled={disabled}>
         Download Enriched CSV
       </button>
-      <button style={btnSecondary} onClick={handlePDF} disabled={activeLayers.length === 0 || pdfLoading}>
+      <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading}>
         {pdfLoading ? 'Generating…' : 'Download PDF Report'}
       </button>
-      {activeLayers.length === 0 && (
+      {disabled && (
         <span style={hintStyle}>Enable at least one boundary layer to export</span>
       )}
     </div>
