@@ -383,10 +383,10 @@ export default function Home() {
                   mapRef.current?.showAllLayers();
                 }
               }}
-              onChoropleth={(layerId, countMap, districtField) => {
+              onChoropleth={(layerId, countMap, districtField, stateField) => {
                 if (!layerId) return; // showAllLayers already resets fill-opacity
                 const color = layerColors[layerId] || DEFAULT_LAYER_COLOR;
-                mapRef.current?.setChoropleth(layerId, countMap, districtField, color);
+                mapRef.current?.setChoropleth(layerId, countMap, districtField, color, stateField);
               }}
               onFilteredIndicesChange={(indices) => {
                 if (indices === null) {

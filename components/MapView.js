@@ -1,5 +1,6 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { ABBR_TO_FIPS } from '../lib/stateFips';
 
 function buildPopupHTML(properties) {
   const skip = new Set(['_rowIndex', '_globalIndex', '_batchId', '_geocodeConfidence', '_datasetLabel', 'lat', 'lng']);
@@ -205,7 +206,7 @@ const MapView = forwardRef(function MapView(_, ref) {
       }
     },
 
-    setChoropleth(layerId, districtCounts, districtField, layerColor) {
+    setChoropleth(layerId, districtCounts, districtField, layerColor, stateField) {
       const map = mapRef.current;
       if (!map) return;
       const fillId = `${layerId}-fill`;
@@ -219,14 +220,38 @@ const MapView = forwardRef(function MapView(_, ref) {
       }
 
       const maxCount = Math.max(...entries.map(([, c]) => c), 1);
-      // Strip state prefix ("IL – 5" → "5") to match raw GeoJSON feature names
-      const matchExpr = ['match', ['get', districtField],
-        ...entries.flatMap(([name, count]) => {
-          const raw = name.includes(' – ') ? name.split(' – ').slice(1).join(' – ') : name;
-          return [raw, count / maxCount];
-        }),
-        0,
-      ];
+
+      // When the layer has a stateField, district names are "IL – 10" and GeoJSON features
+      // have both a STATE (FIPS) and NAME field. Build composite keys "17|10" to avoid
+      // shading district 10 in every state when only IL-10 has constituents.
+      let featureKeyExpr;
+      let buildKey;
+      if (stateField) {
+        featureKeyExpr = ['concat', ['get', stateField], '|', ['get', districtField]];
+        buildKey = (name) => {
+          if (!name.includes(' – ')) return null; // can't build composite key, skip
+          const abbr = name.split(' – ')[0];
+          const districtName = name.split(' – ').slice(1).join(' – ');
+          const fips = ABBR_TO_FIPS[abbr];
+          return fips ? `${fips}|${districtName}` : null;
+        };
+      } else {
+        featureKeyExpr = ['get', districtField];
+        buildKey = (name) => name;
+      }
+
+      const matchPairs = entries.flatMap(([name, count]) => {
+        const key = buildKey(name);
+        return key != null ? [key, count / maxCount] : [];
+      });
+
+      if (matchPairs.length === 0) {
+        map.setPaintProperty(fillId, 'fill-color', layerColor);
+        map.setPaintProperty(fillId, 'fill-opacity', 0.1);
+        return;
+      }
+
+      const matchExpr = ['match', featureKeyExpr, ...matchPairs, 0];
 
       map.setPaintProperty(fillId, 'fill-color', layerColor);
       map.setPaintProperty(fillId, 'fill-opacity',

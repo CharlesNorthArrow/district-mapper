@@ -94,8 +94,9 @@ export default function AnalysisPanel({
   // Keep choropleth in sync when enriched data updates while a layer tab is active
   useEffect(() => {
     if (!activeLayer || !onChoropleth) return;
+    const cfg = LAYER_CONFIG[activeLayer];
     const counts = Object.fromEntries((layerSummary[activeLayer] || []).map(r => [r.districtName, r.count]));
-    onChoropleth(activeLayer, counts, LAYER_CONFIG[activeLayer]?.districtField);
+    onChoropleth(activeLayer, counts, cfg?.districtField, cfg?.stateField);
   }, [layerSummary, activeLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleTabClick(id) {
@@ -107,8 +108,9 @@ export default function AnalysisPanel({
       onChoropleth?.(null);
     } else {
       onLayerIsolate?.(id);
+      const cfg = LAYER_CONFIG[id];
       const counts = Object.fromEntries((layerSummary[id] || []).map(r => [r.districtName, r.count]));
-      onChoropleth?.(id, counts, LAYER_CONFIG[id]?.districtField);
+      onChoropleth?.(id, counts, cfg?.districtField, cfg?.stateField);
     }
   }
 
