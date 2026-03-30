@@ -13,6 +13,9 @@ import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/lay
 import { STATE_FIPS } from '../lib/stateFips';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 
+// Colors for successive program data batches
+const BATCH_COLORS = ['#e63947', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316'];
+
 const tourBtnStyle = {
   position: 'absolute',
   top: 10,
@@ -35,9 +38,10 @@ const tourBtnStyle = {
 export default function Home() {
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
+  const uploadModeRef = useRef('overwrite');
   const [activeLayers, setActiveLayers] = useState([]);
   const [layerColors, setLayerColors] = useState({});
-  const [uploadedData, setUploadedData] = useState(null);
+  const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
@@ -50,9 +54,10 @@ export default function Home() {
   const [showTour, setShowTour] = useState(false);
 
   useEffect(() => {
-    if (!uploadedData) return;
-    setEnrichedPoints(assignDistricts(uploadedData.points, layerGeojson));
-  }, [uploadedData, layerGeojson]);
+    if (dataBatches.length === 0) return;
+    const allPoints = dataBatches.flatMap((b) => b.points);
+    setEnrichedPoints(assignDistricts(allPoints, layerGeojson));
+  }, [dataBatches, layerGeojson]);
 
   function handleGeographySelect(bbox) {
     mapRef.current?.fitBounds(bbox);
@@ -120,15 +125,16 @@ export default function Home() {
     if (selectedDistrict?.layerId === layerId && selectedDistrict?.districtName === districtName) {
       setSelectedDistrict(null);
       mapRef.current?.clearPointFilter();
-      if (uploadedData?.points.length > 0) {
-        const lngs = uploadedData.points.map((p) => p.lng);
-        const lats = uploadedData.points.map((p) => p.lat);
+      const allPoints = dataBatches.flatMap((b) => b.points);
+      if (allPoints.length > 0) {
+        const lngs = allPoints.map((p) => p.lng);
+        const lats = allPoints.map((p) => p.lat);
         mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
       }
     } else {
       const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
       setSelectedDistrict({ layerId, districtName });
-      mapRef.current?.filterPoints(matching.map((p) => p._rowIndex));
+      mapRef.current?.filterPoints(matching.map((p) => p._globalIndex));
       // Pass matched points so getDistrictBbox can disambiguate same-named districts across states
       const bbox = getDistrictBbox(layerId, districtName, matching);
       if (bbox) {
@@ -268,31 +274,55 @@ export default function Home() {
   }, []);
 
   const handleUploadComplete = useCallback((points, originalRows, headers, geos) => {
-    setUploadedData({ points, originalRows, headers });
-    setShowUploadModal(false);
-    // Pass suggestions to LayerPanel so its state/city selectors reflect what was detected
-    setGeoSuggestions(suggestGeographies(points));
-    mapRef.current?.addPointLayer(points);
-    if (points.length > 0) {
-      const lngs = points.map((p) => p.lng);
-      const lats = points.map((p) => p.lat);
-      mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
-    }
-    if (!geos) return;
-    // National layers
-    if (geos.congressional) handleLayerToggle('congressional', true);
-    if (geos['us-senate']) handleLayerToggle('us-senate', true);
-    // Per-state layers (each is an array of state names)
-    for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary']) {
-      const states = geos[layerId] ?? [];
-      if (states.length > 0) {
-        const fipsArray = states.map((s) => STATE_FIPS[s]).filter(Boolean);
-        if (fipsArray.length > 0) handleStateLayerToggle(layerId, true, fipsArray);
+    const isAdd = uploadModeRef.current === 'add';
+
+    setDataBatches((prevBatches) => {
+      const batchIndex = isAdd ? prevBatches.length : 0;
+      const globalOffset = isAdd ? prevBatches.reduce((sum, b) => sum + b.points.length, 0) : 0;
+      const batchId = `batch-${batchIndex}`;
+      const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
+      const label = `Dataset ${batchIndex + 1}`;
+
+      const taggedPoints = points.map((p, i) => ({
+        ...p,
+        _batchId: batchId,
+        _globalIndex: globalOffset + i,
+      }));
+
+      const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
+      const newBatches = isAdd ? [...prevBatches, newBatch] : [newBatch];
+
+      // Update map point layer with all batches
+      const allPoints = newBatches.flatMap((b) => b.points);
+      const batchColors = Object.fromEntries(newBatches.map((b) => [b.id, b.color]));
+      mapRef.current?.setPointLayer(allPoints, batchColors);
+
+      // Fit to the new batch's points
+      if (taggedPoints.length > 0) {
+        const lngs = taggedPoints.map((p) => p.lng);
+        const lats = taggedPoints.map((p) => p.lat);
+        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
       }
-    }
-    // City council layers
-    for (const slug of (geos.cities ?? [])) {
-      handleCityLayerToggle(slug, true);
+
+      return newBatches;
+    });
+
+    setShowUploadModal(false);
+    setGeoSuggestions(suggestGeographies(points));
+
+    if (!geos) return;
+    // Only load boundary layers on first upload or overwrite (not on add)
+    if (!isAdd) {
+      if (geos.congressional) handleLayerToggle('congressional', true);
+      if (geos['us-senate']) handleLayerToggle('us-senate', true);
+      for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary']) {
+        const states = geos[layerId] ?? [];
+        if (states.length > 0) {
+          const fipsArray = states.map((s) => STATE_FIPS[s]).filter(Boolean);
+          if (fipsArray.length > 0) handleStateLayerToggle(layerId, true, fipsArray);
+        }
+      }
+      for (const slug of (geos.cities ?? [])) handleCityLayerToggle(slug, true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -313,8 +343,8 @@ export default function Home() {
           onStateLayerToggle={handleStateLayerToggle}
           onCityLayerToggle={handleCityLayerToggle}
           onCustomLayer={handleCustomLayer}
-          onUploadClick={() => setShowUploadModal(true)}
-          hasData={!!uploadedData}
+          onUploadClick={(mode) => { uploadModeRef.current = mode; setShowUploadModal(true); }}
+          hasData={dataBatches.length > 0}
           geoSuggestions={geoSuggestions}
           onAddressLookup={handleAddressLookup}
           onAddressSelect={handleAddressSelect}
@@ -326,16 +356,20 @@ export default function Home() {
 
         <div style={{ flex: 1, position: 'relative' }}>
           <MapView ref={mapRef} />
-          <Legend activeLayers={activeLayers} layerColors={layerColors} />
+          <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
           <button
             style={tourBtnStyle}
             onClick={() => setShowTour(true)}
           >
             ? How does this work
           </button>
-          {uploadedData && (
+          {dataBatches.length > 0 && (
             <AnalysisPanel
-              uploadedData={uploadedData}
+              uploadedData={{
+                points: dataBatches.flatMap((b) => b.points),
+                originalRows: dataBatches.flatMap((b) => b.originalRows),
+                headers: dataBatches[0]?.headers ?? [],
+              }}
               enrichedPoints={enrichedPoints}
               activeLayers={activeLayers}
               layerGeojson={layerGeojson}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 
 function buildPopupHTML(properties) {
-  const skip = new Set(['_rowIndex', 'lat', 'lng']);
+  const skip = new Set(['_rowIndex', '_globalIndex', '_batchId', '_geocodeConfidence', 'lat', 'lng']);
   const rows = Object.entries(properties)
     .filter(([k]) => !skip.has(k))
     .map(([k, v]) => `
@@ -95,7 +95,8 @@ const MapView = forwardRef(function MapView(_, ref) {
       addedLayers.current.delete(id);
     },
 
-    addPointLayer(points) {
+    // batchColors: { [batchId]: colorString } — used to color points per dataset
+    setPointLayer(points, batchColors = {}) {
       const map = mapRef.current;
       if (!map) return;
 
@@ -117,6 +118,12 @@ const MapView = forwardRef(function MapView(_, ref) {
         })),
       };
 
+      // Build a match expression so each batch gets its own color
+      const entries = Object.entries(batchColors);
+      const colorExpr = entries.length > 1
+        ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
+        : (entries[0]?.[1] ?? '#e63947');
+
       map.addSource('uploaded-points', { type: 'geojson', data: geojson });
       map.addLayer({
         id: 'uploaded-points',
@@ -124,7 +131,7 @@ const MapView = forwardRef(function MapView(_, ref) {
         source: 'uploaded-points',
         paint: {
           'circle-radius': 5,
-          'circle-color': '#e63947',
+          'circle-color': colorExpr,
           'circle-opacity': 0.85,
           'circle-stroke-width': 1,
           'circle-stroke-color': '#fff',
@@ -164,7 +171,7 @@ const MapView = forwardRef(function MapView(_, ref) {
     filterPoints(indices) {
       const map = mapRef.current;
       if (!map?.getLayer('uploaded-points')) return;
-      map.setFilter('uploaded-points', ['in', ['get', '_rowIndex'], ['literal', indices]]);
+      map.setFilter('uploaded-points', ['in', ['get', '_globalIndex'], ['literal', indices]]);
     },
 
     clearPointFilter() {

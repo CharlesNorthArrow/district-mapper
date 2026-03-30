@@ -25,11 +25,25 @@ function getDisplayName(layerId) {
   return layerId;
 }
 
-export default function Legend({ activeLayers, layerColors }) {
-  if (activeLayers.length === 0) return null;
+export default function Legend({ activeLayers, layerColors, dataBatches = [] }) {
+  if (activeLayers.length === 0 && dataBatches.length === 0) return null;
 
   return (
     <div style={styles.box}>
+      {/* Program data batches */}
+      {dataBatches.map((batch) => (
+        <div key={batch.id} style={styles.row}>
+          <div style={{ ...styles.dotSwatch, background: batch.color }} />
+          <span style={{ ...styles.label, fontWeight: 600 }}>{batch.label}</span>
+        </div>
+      ))}
+
+      {/* Separator between data and boundaries */}
+      {dataBatches.length > 0 && activeLayers.length > 0 && (
+        <div style={styles.divider} />
+      )}
+
+      {/* Boundary layers */}
       {activeLayers.map((id) => {
         const color = layerColors[id] || '#467c9d';
         return (
@@ -97,5 +111,17 @@ const styles = {
     color: '#1c3557',
     fontFamily: "'Open Sans', sans-serif",
     lineHeight: 1.3,
+  },
+  dotSwatch: {
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+    flexShrink: 0,
+    border: '1.5px solid rgba(255,255,255,0.6)',
+    boxShadow: '0 0 0 1px rgba(0,0,0,0.15)',
+  },
+  divider: {
+    borderTop: '1px solid #dde3ea',
+    margin: '4px 0',
   },
 };

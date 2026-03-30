@@ -269,9 +269,20 @@ export default function LayerPanel({
         )}
       </div>
 
-      <button style={styles.uploadBtn} onClick={onUploadClick}>
-        {hasData ? 'Replace Data Upload' : '+ Upload Data'}
-      </button>
+      {!hasData ? (
+        <button style={styles.uploadBtn} onClick={() => onUploadClick('overwrite')}>
+          + Upload Program Data
+        </button>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <button style={styles.uploadBtn} onClick={() => onUploadClick('add')}>
+            + Add New Program Data
+          </button>
+          <button style={{ ...styles.uploadBtn, ...styles.uploadBtnSecondary }} onClick={() => onUploadClick('overwrite')}>
+            Overwrite Program Data
+          </button>
+        </div>
+      )}
 
       {/* National section */}
       <div style={styles.section}>
@@ -597,7 +608,7 @@ const styles = {
     margin: '4px 0 0',
   },
   uploadBtn: {
-    margin: '12px 16px',
+    margin: '12px 16px 0',
     padding: '8px 12px',
     background: 'var(--red)',
     color: '#fff',
@@ -606,6 +617,13 @@ const styles = {
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  uploadBtnSecondary: {
+    background: 'transparent',
+    color: 'var(--mid-blue)',
+    border: '1px solid var(--mid-blue)',
+    fontSize: 12,
+    fontWeight: 500,
   },
   section: { borderBottom: '1px solid #dde3ea' },
   sectionHeader: {
