@@ -36,7 +36,10 @@ const PARTY_LABEL = { D: 'Dem', R: 'Rep', I: 'Ind' };
 function lookupRep(districtName, officials) {
   if (!officials || !districtName.includes(' – ')) return null;
   const abbr = districtName.split(' – ')[0];
-  const distNum = districtName.split(' – ')[1];
+  const rawNum = districtName.split(' – ')[1];
+  // TIGERweb NAME may be zero-padded ("05"); officials keys use plain integers ("5")
+  const distNum = parseInt(rawNum, 10);
+  if (isNaN(distNum)) return null;
   return officials[`${abbr}|${distNum}`] || null;
 }
 

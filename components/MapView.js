@@ -242,8 +242,8 @@ const MapView = forwardRef(function MapView(_, ref) {
         // for features that pre-date the outFields fix and lack the STATE property.
         featureKeyExpr = ['case',
           ['has', stateField],
-          ['concat', ['get', stateField], '|', ['get', districtField]],
-          ['get', districtField],
+          ['concat', ['get', stateField], '|', ['to-string', ['get', districtField]]],
+          ['to-string', ['get', districtField]],
         ];
         buildKeys = (name) => {
           const keys = [];
@@ -252,15 +252,17 @@ const MapView = forwardRef(function MapView(_, ref) {
             const districtName = name.split(' – ').slice(1).join(' – ');
             const fips = ABBR_TO_FIPS[abbr];
             if (fips) keys.push(`${fips}|${districtName}`);
-            keys.push(districtName); // plain-name fallback for cached features without STATE
+            keys.push(String(districtName)); // plain-name fallback for cached features without STATE
           } else {
             keys.push(name);
           }
           return keys;
         };
       } else {
-        featureKeyExpr = ['get', districtField];
-        buildKeys = (name) => [name];
+        // Coerce to string so integer-typed district fields (e.g. CounDist = 5)
+        // match string keys ("5") in the match expression.
+        featureKeyExpr = ['to-string', ['get', districtField]];
+        buildKeys = (name) => [String(name)];
       }
 
       // Use a Map to deduplicate keys (a plain districtName key must not appear twice
