@@ -16,6 +16,27 @@ import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 // Colors for successive program data batches
 const BATCH_COLORS = ['#e63947', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316'];
 
+const mapLoadingBadge = {
+  position: 'absolute',
+  top: 12,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  zIndex: 10,
+  background: 'rgba(28,53,87,0.92)',
+  color: '#fff',
+  padding: '7px 16px',
+  borderRadius: 20,
+  fontSize: 12,
+  fontWeight: 600,
+  fontFamily: "'Open Sans', sans-serif",
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  pointerEvents: 'none',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+  whiteSpace: 'nowrap',
+};
+
 const tourBtnStyle = {
   position: 'absolute',
   top: 10,
@@ -39,9 +60,11 @@ export default function Home() {
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
+  const hiddenBatchesRef = useRef(new Set());
   const [activeLayers, setActiveLayers] = useState([]);
   const [layerColors, setLayerColors] = useState({});
   const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
+  const [hiddenBatches, setHiddenBatches] = useState(new Set());
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
@@ -58,6 +81,21 @@ export default function Home() {
     const allPoints = dataBatches.flatMap((b) => b.points);
     setEnrichedPoints(assignDistricts(allPoints, layerGeojson));
   }, [dataBatches, layerGeojson]);
+
+  // Highlight the matched district polygons on the map whenever lookup results arrive
+  useEffect(() => {
+    if (!lookupDistricts || Object.keys(lookupDistricts).length === 0) {
+      mapRef.current?.clearLookupHighlights();
+      return;
+    }
+    const highlights = Object.entries(lookupDistricts)
+      .filter(([layerId]) => activeLayers.includes(layerId) && layerGeojson[layerId])
+      .map(([layerId, displayName]) => {
+        const cfg = LAYER_CONFIG[layerId];
+        return { layerId, displayName, districtField: cfg?.districtField || 'NAME', stateField: cfg?.stateField || null };
+      });
+    mapRef.current?.setLookupHighlights(highlights);
+  }, [lookupDistricts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleGeographySelect(bbox) {
     mapRef.current?.fitBounds(bbox);
@@ -195,6 +233,27 @@ export default function Home() {
     pinAndAssignDistricts(lat, lng, label);
   }
 
+  function toggleBatchVisibility(batchId) {
+    setHiddenBatches((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      hiddenBatchesRef.current = next;
+      const visibleBatches = dataBatches.filter((b) => !next.has(b.id));
+      const batchColors = Object.fromEntries(visibleBatches.map((b) => [b.id, b.color]));
+      mapRef.current?.setPointLayer(visibleBatches.flatMap((b) => b.points), batchColors);
+      return next;
+    });
+  }
+
+  function handleLookupClear() {
+    setLookupStatus('idle');
+    setLookupLabel('');
+    setLookupDistricts({});
+    mapRef.current?.clearSearchPin();
+    mapRef.current?.clearLookupHighlights();
+  }
+
   function removeLayer(layerId) {
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
     setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
@@ -276,6 +335,11 @@ export default function Home() {
   const handleUploadComplete = useCallback((points, originalRows, headers, geos, title) => {
     const isAdd = uploadModeRef.current === 'add';
 
+    if (!isAdd) {
+      hiddenBatchesRef.current = new Set();
+      setHiddenBatches(new Set());
+    }
+
     setDataBatches((prevBatches) => {
       const batchIndex = isAdd ? prevBatches.length : 0;
       const globalOffset = isAdd ? prevBatches.reduce((sum, b) => sum + b.points.length, 0) : 0;
@@ -293,10 +357,10 @@ export default function Home() {
       const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
       const newBatches = isAdd ? [...prevBatches, newBatch] : [newBatch];
 
-      // Update map point layer with all batches
-      const allPoints = newBatches.flatMap((b) => b.points);
-      const batchColors = Object.fromEntries(newBatches.map((b) => [b.id, b.color]));
-      mapRef.current?.setPointLayer(allPoints, batchColors);
+      // Update map point layer — respect any hidden batches
+      const visibleBatches = newBatches.filter((b) => !hiddenBatchesRef.current.has(b.id));
+      const batchColors = Object.fromEntries(visibleBatches.map((b) => [b.id, b.color]));
+      mapRef.current?.setPointLayer(visibleBatches.flatMap((b) => b.points), batchColors);
 
       // Fit to the new batch's points
       if (taggedPoints.length > 0) {
@@ -346,9 +410,13 @@ export default function Home() {
           onCustomLayer={handleCustomLayer}
           onUploadClick={(mode) => { uploadModeRef.current = mode; setShowUploadModal(true); }}
           hasData={dataBatches.length > 0}
+          dataBatches={dataBatches}
+          hiddenBatches={hiddenBatches}
+          onToggleBatch={toggleBatchVisibility}
           geoSuggestions={geoSuggestions}
           onAddressLookup={handleAddressLookup}
           onAddressSelect={handleAddressSelect}
+          onLookupClear={handleLookupClear}
           lookupStatus={lookupStatus}
           lookupLabel={lookupLabel}
           lookupDistricts={lookupDistricts}
@@ -358,6 +426,12 @@ export default function Home() {
         <div style={{ flex: 1, position: 'relative' }}>
           <MapView ref={mapRef} />
           <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
+          {loadingLayer && (
+            <div style={mapLoadingBadge}>
+              <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>↻</span>
+              Loading {LAYER_CONFIG[loadingLayer]?.displayName || loadingLayer}…
+            </div>
+          )}
           <button
             style={tourBtnStyle}
             onClick={() => setShowTour(true)}

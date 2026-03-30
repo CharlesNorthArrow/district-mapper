@@ -20,15 +20,19 @@ export default function LayerPanel({
   onCustomLayer,
   onUploadClick,
   hasData,
+  dataBatches,
+  hiddenBatches,
+  onToggleBatch,
   geoSuggestions,
   onAddressLookup,
   onAddressSelect,
+  onLookupClear,
   lookupStatus,
   lookupLabel,
   lookupDistricts,
   onGeographySelect,
 }) {
-  const [openSections, setOpenSections] = useState({ national: true, state: false, local: false });
+  const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
   const [selectedStates, setSelectedStates] = useState([]);
   const [selectedCities, setSelectedCities] = useState([]);
   const [stateSearch, setStateSearch] = useState('');
@@ -258,7 +262,14 @@ export default function LayerPanel({
 
         {lookupStatus === 'found' && (
           <>
-            <p style={styles.lookupFound}>{lookupLabel}</p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+              <p style={{ ...styles.lookupFound, margin: 0, flex: 1 }}>{lookupLabel}</p>
+              <button
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#7a8fa6', padding: '0 0 0 6px', lineHeight: 1 }}
+                onClick={() => { setLookupInput(''); onLookupClear?.(); }}
+                title="Clear lookup"
+              >✕</button>
+            </div>
             {lookupDistricts === null && (
               <p style={styles.lookupLoading}>Looking up districts…</p>
             )}
@@ -296,6 +307,31 @@ export default function LayerPanel({
           <button style={{ ...styles.uploadBtn, ...styles.uploadBtnSecondary }} onClick={() => onUploadClick('overwrite')}>
             Overwrite Program Data
           </button>
+        </div>
+      )}
+
+      {/* Program Data section */}
+      {dataBatches?.length > 0 && (
+        <div style={styles.section}>
+          <button style={styles.sectionHeader} onClick={() => toggleSection('data')}>
+            <span>Program Data</span>
+            <span>{openSections.data ? '▲' : '▼'}</span>
+          </button>
+          {openSections.data && (
+            <div style={styles.sectionBody}>
+              {dataBatches.map((batch) => (
+                <label key={batch.id} style={styles.layerRow}>
+                  <input
+                    type="checkbox"
+                    checked={!hiddenBatches?.has(batch.id)}
+                    onChange={() => onToggleBatch?.(batch.id)}
+                  />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: batch.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13 }}>{batch.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

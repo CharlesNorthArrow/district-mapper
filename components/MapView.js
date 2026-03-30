@@ -28,6 +28,7 @@ const MapView = forwardRef(function MapView(_, ref) {
   const pointClickHandlerRef = useRef(null);
   const pointEnterHandlerRef = useRef(null);
   const pointLeaveHandlerRef = useRef(null);
+  const lookupHighlightIds = useRef([]);
 
   useEffect(() => {
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -266,6 +267,59 @@ const MapView = forwardRef(function MapView(_, ref) {
       if (map.getLayer(fillId)) {
         map.setPaintProperty(fillId, 'fill-opacity', 0.1);
       }
+    },
+
+    // highlights: [{ layerId, displayName, districtField, stateField }]
+    // Adds a temporary amber highlight layer for each matched lookup district.
+    setLookupHighlights(highlights) {
+      const map = mapRef.current;
+      if (!map) return;
+      // Remove previous highlights
+      for (const hId of lookupHighlightIds.current) {
+        if (map.getLayer(`${hId}-fill`)) map.removeLayer(`${hId}-fill`);
+        if (map.getLayer(`${hId}-line`)) map.removeLayer(`${hId}-line`);
+      }
+      lookupHighlightIds.current = [];
+      if (!highlights?.length) return;
+
+      for (const { layerId, displayName, districtField, stateField } of highlights) {
+        if (!map.getSource(layerId)) continue;
+        let filter;
+        if (stateField && displayName.includes(' – ')) {
+          const abbr = displayName.split(' – ')[0];
+          const districtName = displayName.split(' – ').slice(1).join(' – ');
+          const fips = ABBR_TO_FIPS[abbr];
+          filter = fips
+            ? ['all', ['==', ['get', stateField], fips], ['==', ['get', districtField], districtName]]
+            : ['==', ['get', districtField], districtName];
+        } else {
+          filter = ['==', ['get', districtField], displayName];
+        }
+        const hFillId = `lookup-${layerId}-fill`;
+        const hLineId = `lookup-${layerId}-line`;
+        map.addLayer({ id: hFillId, type: 'fill', source: layerId, filter,
+          paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.35 } });
+        map.addLayer({ id: hLineId, type: 'line', source: layerId, filter,
+          paint: { 'line-color': '#d97706', 'line-width': 2.5, 'line-opacity': 1 } });
+        lookupHighlightIds.current.push(`lookup-${layerId}`);
+      }
+    },
+
+    clearLookupHighlights() {
+      const map = mapRef.current;
+      if (!map) return;
+      for (const hId of lookupHighlightIds.current) {
+        if (map.getLayer(`${hId}-fill`)) map.removeLayer(`${hId}-fill`);
+        if (map.getLayer(`${hId}-line`)) map.removeLayer(`${hId}-line`);
+      }
+      lookupHighlightIds.current = [];
+    },
+
+    clearSearchPin() {
+      const map = mapRef.current;
+      if (!map) return;
+      if (map.getLayer('search-pin')) map.removeLayer('search-pin');
+      if (map.getSource('search-pin')) map.removeSource('search-pin');
     },
 
     addSearchPin(lng, lat) {

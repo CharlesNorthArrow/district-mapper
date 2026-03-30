@@ -15,6 +15,27 @@ function getScope(layerId) {
 }
 
 const SCOPE_ORDER = { national: 0, state: 1, local: 2, custom: 3 };
+
+const PARTY_COLOR = { D: '#3b82f6', R: '#ef4444' };
+
+function renderRep(districtName, officials) {
+  if (!officials) return <span style={{ color: '#c5d0da', fontSize: 11 }}>loading…</span>;
+  if (!districtName.includes(' – ')) return <span style={{ color: '#c5d0da' }}>—</span>;
+  const abbr = districtName.split(' – ')[0];
+  const distNum = districtName.split(' – ')[1];
+  const rep = officials[`${abbr}|${distNum}`];
+  if (!rep) return <span style={{ color: '#c5d0da' }}>—</span>;
+  const dotColor = PARTY_COLOR[rep.party] || '#8b5cf6';
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+      {rep.url
+        ? <a href={rep.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1c3557', fontSize: 12, textDecoration: 'none' }}>{rep.name}</a>
+        : <span style={{ fontSize: 12 }}>{rep.name}</span>
+      }
+    </span>
+  );
+}
 const SCOPE_LABELS = { national: 'National', state: 'State', local: 'Local', custom: 'Custom' };
 const SCOPE_COLORS = {
   national: { active: '#1c3557', inactive: '#e8edf2', activeText: '#fff', inactiveText: '#1c3557' },
@@ -39,6 +60,7 @@ export default function AnalysisPanel({
   const [open, setOpen] = useState(true);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const [activeFilters, setActiveFilters] = useState([]);
+  const [officials, setOfficials] = useState(null); // null = not fetched yet
   const selectAllRef = useRef(null);
 
   const { points, originalRows, headers } = uploadedData;
@@ -90,6 +112,15 @@ export default function AnalysisPanel({
     selectAllRef.current.checked = allChecked;
     selectAllRef.current.indeterminate = someChecked && !allChecked;
   }, [checkedDistricts, rows]);
+
+  // Fetch US House members when the congressional tab is first viewed
+  useEffect(() => {
+    if (activeLayer !== 'congressional' || officials !== null) return;
+    fetch('/api/officials')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setOfficials(data || {}))
+      .catch(() => setOfficials({}));
+  }, [activeLayer, officials]);
 
   // Keep choropleth in sync when enriched data updates while a layer tab is active
   useEffect(() => {
@@ -300,11 +331,11 @@ export default function AnalysisPanel({
                             <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
                           </th>
                           <th style={th}>District</th>
+                          {activeLayer === 'congressional' && (
+                            <th style={th}>Representative</th>
+                          )}
                           <th style={{ ...th, textAlign: 'right' }}>Points</th>
                           <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
-                          {numericFields.slice(0, 3).map((f) => (
-                            <th key={f} style={{ ...th, textAlign: 'right' }}>Avg {f}</th>
-                          ))}
                         </tr>
                       </thead>
                       <tbody>
@@ -328,13 +359,11 @@ export default function AnalysisPanel({
                               <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeLayer, row.districtName)}>
                                 {row.districtName}
                               </td>
+                              {activeLayer === 'congressional' && (
+                                <td style={td}>{renderRep(row.districtName, officials)}</td>
+                              )}
                               <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
                               <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
-                              {numericFields.slice(0, 3).map((f) => (
-                                <td key={f} style={{ ...td, textAlign: 'right' }}>
-                                  {row.fieldAverages[f] !== undefined ? row.fieldAverages[f].toFixed(2) : '—'}
-                                </td>
-                              ))}
                             </tr>
                           );
                         })}
@@ -342,13 +371,11 @@ export default function AnalysisPanel({
                           <tr style={{ background: '#fff5f5' }}>
                             <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
                             <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
+                            {activeLayer === 'congressional' && <td style={td} />}
                             <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
                             <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
                               {((unmatchedCount / points.length) * 100).toFixed(1)}%
                             </td>
-                            {numericFields.slice(0, 3).map((f) => (
-                              <td key={f} style={{ ...td, textAlign: 'right' }}>—</td>
-                            ))}
                           </tr>
                         )}
                       </tbody>
