@@ -111,14 +111,19 @@ export default function ExportControls({
 
   if (compact) {
     return (
-      <>
-        <button style={btnPrimary} onClick={handleCSV} disabled={disabled}>
-          Download: Enriched CSV
+      <div style={compactGroup}>
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style={{ color: '#7a8fa6', flexShrink: 0 }}>
+          <path d="M8 11L3 6h3V1h4v5h3L8 11zM1 13h14v2H1v-2z"/>
+        </svg>
+        <span style={compactLabel}>Download:</span>
+        <button style={compactBtn} onClick={handleCSV} disabled={disabled}>
+          Enriched CSV
         </button>
-        <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading}>
-          {pdfLoading ? 'Generating…' : 'Download: PDF Report'}
+        <span style={compactDivider}>|</span>
+        <button style={compactBtn} onClick={handlePDF} disabled={disabled || pdfLoading}>
+          {pdfLoading ? 'Generating…' : 'PDF Report'}
         </button>
-      </>
+      </div>
     );
   }
 
@@ -150,3 +155,17 @@ const btnSecondary = {
   border: '1px solid var(--mid-blue)', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer',
 };
 const hintStyle = { fontSize: 11, color: '#7a8fa6' };
+const compactGroup = {
+  display: 'flex', alignItems: 'center', gap: 4,
+  background: '#f8fafc', border: '1px solid #dde3ea', borderRadius: 5,
+  padding: '3px 8px', flexShrink: 0,
+};
+const compactLabel = {
+  fontSize: 10, fontWeight: 700, color: '#7a8fa6',
+  textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+};
+const compactDivider = { fontSize: 10, color: '#c5d0da' };
+const compactBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 11, fontWeight: 600, color: '#1c3557', padding: '1px 4px', borderRadius: 3,
+};

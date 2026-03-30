@@ -218,7 +218,7 @@ export default function AnalysisPanel({
     <div style={{ ...panel, height: open ? 'var(--panel-height)' : 40 }}>
       <div style={panelHeader}>
         <span style={panelTitle}>Analysis — {points.length.toLocaleString()} points</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {selectedDistrict && (
             <span style={filterBadge}>
               {selectedDistrict.districtName}
@@ -228,25 +228,30 @@ export default function AnalysisPanel({
               >✕</button>
             </span>
           )}
-          {activeLayers.length === 0 && (
-            <span style={hintStyle}>Enable boundary layers to analyze districts</span>
-          )}
-          {filterAdding === null ? (
-            <>
-              <button style={headerFilterBtn} onClick={() => setFilterAdding('data')}>
-                + Program Data
-              </button>
-              {activeLayers.length > 0 && (
-                <button style={headerDistrictFilterBtn} onClick={() => setFilterAdding('district')}>
-                  + District
-                </button>
-              )}
-            </>
-          ) : (
-            <span style={{ fontSize: 11, color: '#7a8fa6', fontStyle: 'italic' }}>
-              {filterAdding === 'data' ? 'Program Data filter' : 'District filter'}
-            </span>
-          )}
+
+          {/* Filter group */}
+          <div style={headerGroup}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style={{ color: '#7a8fa6', flexShrink: 0 }}>
+              <path d="M1 2h14l-5 6.5V14l-4-2V8.5L1 2z"/>
+            </svg>
+            <span style={headerGroupLabel}>Filter by:</span>
+            <button
+              style={{ ...headerGroupBtn, ...(filterAdding === 'data' ? headerGroupBtnActiveData : {}) }}
+              onClick={() => setFilterAdding(filterAdding === 'data' ? null : 'data')}
+            >
+              Program Data
+            </button>
+            <span style={headerGroupDivider}>|</span>
+            <button
+              style={{ ...headerGroupBtn, ...(filterAdding === 'district' ? headerGroupBtnActiveDistrict : {}), opacity: activeLayers.length === 0 ? 0.4 : 1 }}
+              onClick={() => activeLayers.length > 0 && setFilterAdding(filterAdding === 'district' ? null : 'district')}
+              disabled={activeLayers.length === 0}
+            >
+              District
+            </button>
+          </div>
+
+          {/* Download group */}
           <ExportControls
             originalRows={originalRows}
             enrichedPoints={enrichedPoints}
@@ -256,6 +261,7 @@ export default function AnalysisPanel({
             pointCount={points.length}
             compact
           />
+
           <button style={toggleBtn} onClick={() => setOpen((o) => !o)}>
             {open ? '▼' : '▲'}
           </button>
@@ -469,14 +475,22 @@ const panelHeader = {
 const panelTitle = { fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--dark-navy)' };
 const hintStyle = { fontSize: 12, color: '#7a8fa6' };
 const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
-const headerFilterBtn = {
-  background: 'none', border: '1px dashed #93c5fd', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, color: '#1d4ed8', cursor: 'pointer', padding: '2px 8px',
+const headerGroup = {
+  display: 'flex', alignItems: 'center', gap: 4,
+  background: '#f8fafc', border: '1px solid #dde3ea', borderRadius: 5,
+  padding: '3px 8px', flexShrink: 0,
 };
-const headerDistrictFilterBtn = {
-  background: 'none', border: '1px dashed #6ee7b7', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, color: '#047857', cursor: 'pointer', padding: '2px 8px',
+const headerGroupLabel = {
+  fontSize: 10, fontWeight: 700, color: '#7a8fa6',
+  textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
 };
+const headerGroupDivider = { fontSize: 10, color: '#c5d0da' };
+const headerGroupBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 11, fontWeight: 600, color: '#1c3557', padding: '1px 4px', borderRadius: 3,
+};
+const headerGroupBtnActiveData = { background: '#dbeafe', color: '#1d4ed8' };
+const headerGroupBtnActiveDistrict = { background: '#d1fae5', color: '#047857' };
 const panelBody = { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' };
 const layerTabs = { display: 'flex', gap: 4, padding: '8px 12px', flexShrink: 0, flexWrap: 'wrap' };
 const tabBtn = {
