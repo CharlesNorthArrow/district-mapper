@@ -112,11 +112,11 @@ export default function ExportControls({
   if (compact) {
     return (
       <>
-        <button style={btnPrimary} onClick={handleCSV} disabled={disabled} title="Download Enriched CSV">
-          CSV
+        <button style={btnPrimary} onClick={handleCSV} disabled={disabled}>
+          Download: Enriched CSV
         </button>
-        <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading} title="Download PDF Report">
-          {pdfLoading ? '…' : 'PDF'}
+        <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading}>
+          {pdfLoading ? 'Generating…' : 'Download: PDF Report'}
         </button>
       </>
     );
