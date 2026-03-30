@@ -48,10 +48,13 @@ export default async function handler(req, res) {
     if (config.whereExtra) where += ` AND (${config.whereExtra})`;
   }
 
+  // Request both the district name field and state field (needed for choropleth + lookup highlights)
+  const outFields = [config.districtField, config.stateField].filter(Boolean).join(',');
+
   const params = new URLSearchParams({
     f: 'geojson',
     where,
-    outFields: config.districtField,
+    outFields,
     returnGeometry: 'true',
     outSR: '4326',
     maxAllowableOffset: String(config.maxAllowableOffset),

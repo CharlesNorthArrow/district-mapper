@@ -59,6 +59,13 @@ const MapView = forwardRef(function MapView(_, ref) {
 
       const fillId = `${id}-fill`;
       const lineId = `${id}-line`;
+      const hFillId = `lookup-${id}-fill`;
+      const hLineId = `lookup-${id}-line`;
+      // Remove lookup highlight layers first — they reference the same source and
+      // Mapbox won't allow removeSource while any layer still uses it.
+      if (map.getLayer(hFillId)) map.removeLayer(hFillId);
+      if (map.getLayer(hLineId)) map.removeLayer(hLineId);
+      lookupHighlightIds.current = lookupHighlightIds.current.filter((h) => h !== `lookup-${id}`);
       if (map.getLayer(fillId)) map.removeLayer(fillId);
       if (map.getLayer(lineId)) map.removeLayer(lineId);
       if (map.getSource(id)) map.removeSource(id);
@@ -92,10 +99,13 @@ const MapView = forwardRef(function MapView(_, ref) {
     removeBoundaryLayer(id) {
       const map = mapRef.current;
       if (!map) return;
-      const fillId = `${id}-fill`;
-      const lineId = `${id}-line`;
-      if (map.getLayer(fillId)) map.removeLayer(fillId);
-      if (map.getLayer(lineId)) map.removeLayer(lineId);
+      const hFillId = `lookup-${id}-fill`;
+      const hLineId = `lookup-${id}-line`;
+      if (map.getLayer(hFillId)) map.removeLayer(hFillId);
+      if (map.getLayer(hLineId)) map.removeLayer(hLineId);
+      lookupHighlightIds.current = lookupHighlightIds.current.filter((h) => h !== `lookup-${id}`);
+      if (map.getLayer(`${id}-fill`)) map.removeLayer(`${id}-fill`);
+      if (map.getLayer(`${id}-line`)) map.removeLayer(`${id}-line`);
       if (map.getSource(id)) map.removeSource(id);
       addedLayers.current.delete(id);
     },
