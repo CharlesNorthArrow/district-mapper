@@ -43,17 +43,18 @@ const tourBtnStyle = {
   left: '50%',
   transform: 'translateX(-50%)',
   zIndex: 5,
-  background: 'rgba(255,255,255,0.93)',
-  border: '1px solid #dde3ea',
+  background: '#f5a800',
+  border: 'none',
   borderRadius: 20,
-  padding: '6px 14px',
+  padding: '6px 16px',
   fontSize: 12,
-  fontWeight: 600,
-  color: '#1c3557',
+  fontWeight: 700,
+  color: '#fff',
   fontFamily: "'Open Sans', sans-serif",
   cursor: 'pointer',
-  boxShadow: '0 1px 6px rgba(0,0,0,0.1)',
+  boxShadow: '0 2px 8px rgba(245,168,0,0.45)',
   whiteSpace: 'nowrap',
+  animation: 'breathe 3s ease-in-out infinite',
 };
 
 export default function Home() {
@@ -436,7 +437,7 @@ export default function Home() {
             style={tourBtnStyle}
             onClick={() => setShowTour(true)}
           >
-            ? How does this work?
+            How does this work?
           </button>
           {dataBatches.length > 0 && (
             <AnalysisPanel
