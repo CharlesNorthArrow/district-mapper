@@ -212,9 +212,8 @@ export default function LayerPanel({
 
       {/* Address lookup */}
       <div style={styles.lookupBox}>
-        <div style={{ position: 'relative' }}>
         <form
-          style={styles.lookupRow}
+          style={{ ...styles.lookupRow, position: 'relative' }}
           onSubmit={(e) => {
             e.preventDefault();
             setSuggestions([]);
@@ -227,7 +226,7 @@ export default function LayerPanel({
             placeholder="Look up an address…"
             value={lookupInput}
             onChange={(e) => setLookupInput(e.target.value)}
-            onBlur={() => setTimeout(() => setSuggestions([]), 150)}
+            onBlur={() => setSuggestions([])}
             disabled={lookupStatus === 'loading'}
             autoComplete="off"
           />
@@ -238,27 +237,34 @@ export default function LayerPanel({
           >
             {lookupStatus === 'loading' ? '…' : '→'}
           </button>
-        </form>
-        </div>
 
-        {suggestions.length > 0 && (
-          <div style={styles.suggestions}>
-            {suggestions.map((f) => (
-              <button
-                key={f.id}
-                style={styles.suggestion}
-                onMouseDown={() => {
-                  const [lng, lat] = f.center;
-                  setLookupInput(f.place_name);
-                  setSuggestions([]);
-                  onAddressSelect(lat, lng, f.place_name);
-                }}
-              >
-                {f.place_name}
-              </button>
-            ))}
-          </div>
-        )}
+          {suggestions.length > 0 && (
+            <div
+              style={styles.suggestions}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              {suggestions.map((f) => {
+                const [primary, ...rest] = f.place_name.split(', ');
+                const context = rest.slice(0, 2).join(', ');
+                return (
+                  <button
+                    key={f.id}
+                    style={styles.suggestion}
+                    onClick={() => {
+                      const [lng, lat] = f.center;
+                      setLookupInput(f.place_name);
+                      setSuggestions([]);
+                      onAddressSelect(lat, lng, f.place_name);
+                    }}
+                  >
+                    <span style={{ display: 'block', fontWeight: 600 }}>{primary}</span>
+                    {context && <span style={{ fontSize: 11, color: '#7a8fa6' }}>{context}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </form>
 
         {lookupStatus === 'found' && (
           <>
@@ -621,24 +627,26 @@ const styles = {
   },
   suggestions: {
     position: 'absolute',
-    left: 0, right: 0,
+    top: '100%', left: 0, right: 0,
     background: '#fff',
     border: '1px solid #c5d0da',
-    borderRadius: '0 0 4px 4px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    borderTop: 'none',
+    borderRadius: '0 0 5px 5px',
+    boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
     zIndex: 50,
     display: 'flex',
     flexDirection: 'column',
+    overflow: 'hidden',
   },
   suggestion: {
     background: 'none',
     border: 'none',
     borderBottom: '1px solid #f0f4f8',
-    padding: '7px 10px',
+    padding: '6px 10px',
     fontSize: 12,
     textAlign: 'left',
     cursor: 'pointer',
-    lineHeight: 1.4,
+    lineHeight: 1.35,
     color: 'var(--dark-navy)',
   },
   lookupFound: {
