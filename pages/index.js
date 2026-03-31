@@ -74,7 +74,7 @@ export default function Home() {
   const [lookupStatus, setLookupStatus] = useState('idle');
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
-  const [showTour, setShowTour] = useState(false);
+  const [showTour, setShowTour] = useState(true);
 
   useEffect(() => {
     if (dataBatches.length === 0) return;
@@ -436,7 +436,7 @@ export default function Home() {
             style={tourBtnStyle}
             onClick={() => setShowTour(true)}
           >
-            ? How does this work
+            ? How does this work?
           </button>
           {dataBatches.length > 0 && (
             <AnalysisPanel

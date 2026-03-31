@@ -44,7 +44,10 @@ export default function TourOverlay({ onClose }) {
       <div style={styles.card} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div style={styles.header}>
-          <span style={styles.stepLabel}>Step {step + 1} of {STEPS.length}</span>
+          <div style={styles.headerTitles}>
+            <h1 style={styles.modalTitle}>How to use District Mapper</h1>
+            <span style={styles.stepLabel}>Step {step + 1} of {STEPS.length}</span>
+          </div>
           <button style={styles.closeBtn} onClick={onClose} aria-label="Close tour">✕</button>
         </div>
 
@@ -113,8 +116,23 @@ const styles = {
   header: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '16px 20px 0',
+    alignItems: 'flex-start',
+    padding: '20px 20px 0',
+    borderBottom: '1px solid #eef1f4',
+    paddingBottom: 16,
+  },
+  headerTitles: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+  },
+  modalTitle: {
+    fontFamily: 'Poppins, sans-serif',
+    fontWeight: 700,
+    fontSize: 17,
+    color: '#1c3557',
+    margin: 0,
+    lineHeight: 1.2,
   },
   stepLabel: {
     fontSize: 11,
