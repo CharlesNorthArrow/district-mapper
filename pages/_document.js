@@ -5,8 +5,8 @@ export default function Document() {
     <Html lang="en">
       <Head>
         {/* Favicon */}
-        <link rel="icon" type="image/png" href="/North_Arrow_icon.png" />
-        <link rel="shortcut icon" href="/North_Arrow_icon.png" />
+        <link rel="icon" type="image/svg+xml" href="/North_Arrow_icon.svg" />
+        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href="/North_Arrow_icon.png" />
 
         {/* Primary meta */}
