@@ -388,7 +388,12 @@ export default function Home() {
           if (fipsArray.length > 0) handleStateLayerToggle(layerId, true, fipsArray);
         }
       }
-      for (const slug of (geos.cities ?? [])) handleCityLayerToggle(slug, true);
+      for (const slug of (geos.cities ?? [])) {
+        handleCityLayerToggle(slug, true);
+        for (const { slug: extraSlug } of CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []) {
+          handleCityLayerToggle(extraSlug, true);
+        }
+      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -487,9 +487,10 @@ const panelTitle = { fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSiz
 const hintStyle = { fontSize: 12, color: '#7a8fa6' };
 const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
 const guideBtn = {
-  background: 'none', border: '1px solid #dde3ea', borderRadius: 4,
-  padding: '3px 10px', fontSize: 11, fontWeight: 600, color: '#467c9d',
+  background: '#f5a800', border: 'none', borderRadius: 20,
+  padding: '4px 12px', fontSize: 11, fontWeight: 700, color: '#fff',
   cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+  boxShadow: '0 2px 6px rgba(245,168,0,0.4)',
 };
 const headerGroup = {
   display: 'flex', alignItems: 'center', gap: 4,
