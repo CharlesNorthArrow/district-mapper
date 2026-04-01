@@ -63,6 +63,7 @@ export default function Home() {
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
   const hiddenBatchesRef = useRef(new Set());
+  const activeLayersRef = useRef([]);
   const [activeLayers, setActiveLayers] = useState([]);
   const [layerColors, setLayerColors] = useState({});
   const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
@@ -81,6 +82,8 @@ export default function Home() {
     try { return localStorage.getItem('dm_unlimited') === 'true'; } catch { return false; }
   });
   const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
+
+  useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
 
   useEffect(() => {
     if (dataBatches.length === 0) return;
@@ -394,11 +397,17 @@ export default function Home() {
     });
 
     setShowUploadModal(false);
-    setGeoSuggestions(suggestGeographies(points));
 
     if (!geos) return;
     // Only load boundary layers on first upload or overwrite (not on add)
     if (!isAdd) {
+      // Clear all existing boundary layers so unchecked layers don't linger from a previous upload
+      for (const layerId of activeLayersRef.current) {
+        mapRef.current?.removeBoundaryLayer(layerId);
+      }
+      setActiveLayers([]);
+      setLayerGeojson({});
+      setLayerColors({});
       if (geos.congressional) handleLayerToggle('congressional', true);
       if (geos['us-senate']) handleLayerToggle('us-senate', true);
       for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary']) {
@@ -415,6 +424,16 @@ export default function Home() {
         }
       }
     }
+
+    // Tell LayerPanel only about the states/cities that were actually loaded so its
+    // state selector reflects the checked choices and doesn't re-fetch extra layers
+    const loadedStates = [];
+    for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary', 'incorporated-places', 'zcta']) {
+      for (const state of (geos[layerId] ?? [])) {
+        if (!loadedStates.includes(state)) loadedStates.push(state);
+      }
+    }
+    setGeoSuggestions({ states: loadedStates, cities: geos.cities ?? [] });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
