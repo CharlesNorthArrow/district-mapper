@@ -6,6 +6,7 @@ export default function Document() {
       <Head>
         {/* Favicon */}
         <link rel="icon" type="image/png" href="/North_Arrow_icon.png" />
+        <link rel="shortcut icon" href="/North_Arrow_icon.png" />
         <link rel="apple-touch-icon" href="/North_Arrow_icon.png" />
 
         {/* Primary meta */}
@@ -16,16 +17,17 @@ export default function Document() {
 
         {/* Open Graph */}
         <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://districts.north-arrow.org" />
         <meta property="og:site_name" content="District Mapper — North Arrow" />
         <meta property="og:title" content="District Mapper" />
         <meta property="og:description" content="Map your constituents to legislative districts. Upload program data, enable boundary layers, and export enriched analysis — built for nonprofits." />
-        <meta property="og:image" content="/North_Arrow_logo.png" />
+        <meta property="og:image" content="https://districts.north-arrow.org/North_Arrow_logo.png" />
 
         {/* Twitter / X card */}
         <meta name="twitter:card" content="summary" />
         <meta name="twitter:title" content="District Mapper — North Arrow" />
         <meta name="twitter:description" content="Map your constituents to legislative districts. Upload program data, enable boundary layers, and export enriched analysis." />
-        <meta name="twitter:image" content="/North_Arrow_logo.png" />
+        <meta name="twitter:image" content="https://districts.north-arrow.org/North_Arrow_logo.png" />
       </Head>
       <body>
         <Main />
