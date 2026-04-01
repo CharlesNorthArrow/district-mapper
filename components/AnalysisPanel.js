@@ -5,6 +5,7 @@ import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import ExportControls from './ExportControls';
 import FilterBar, { applyFilters } from './FilterBar';
+import AnalysisGuide from './AnalysisGuide';
 
 const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
 
@@ -93,6 +94,7 @@ export default function AnalysisPanel({
   // 'overview' | null (falls back to first layer) | layerId
   const [selectedLayer, setSelectedLayer] = useState('overview');
   const [open, setOpen] = useState(true);
+  const [showGuide, setShowGuide] = useState(false);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterAdding, setFilterAdding] = useState(null); // null | 'data' | 'district'
@@ -230,7 +232,7 @@ export default function AnalysisPanel({
           )}
 
           {/* Filter group */}
-          <div style={headerGroup}>
+          <div data-guide="filter-group" style={headerGroup}>
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style={{ color: '#7a8fa6', flexShrink: 0 }}>
               <path d="M1 2h14l-5 6.5V14l-4-2V8.5L1 2z"/>
             </svg>
@@ -252,15 +254,23 @@ export default function AnalysisPanel({
           </div>
 
           {/* Download group */}
-          <ExportControls
-            originalRows={originalRows}
-            enrichedPoints={enrichedPoints}
-            activeLayers={activeLayers}
-            layerSummary={layerSummary}
-            numericFields={numericFields}
-            pointCount={points.length}
-            compact
-          />
+          <div data-guide="export-controls">
+            <ExportControls
+              originalRows={originalRows}
+              enrichedPoints={enrichedPoints}
+              activeLayers={activeLayers}
+              layerSummary={layerSummary}
+              numericFields={numericFields}
+              pointCount={points.length}
+              compact
+            />
+          </div>
+
+          {open && (
+            <button style={guideBtn} onClick={() => setShowGuide(true)}>
+              What am I looking at?
+            </button>
+          )}
 
           <button style={toggleBtn} onClick={() => setOpen((o) => !o)}>
             {open ? '▼' : '▲'}
@@ -286,7 +296,7 @@ export default function AnalysisPanel({
           {activeLayers.length > 0 && (
             <>
               {/* Tab bar */}
-              <div style={layerTabs}>
+              <div data-guide="layer-tabs" style={layerTabs}>
                 {/* Overview tab — always first */}
                 <button
                   style={{
@@ -322,7 +332,7 @@ export default function AnalysisPanel({
 
               {/* ── OVERVIEW ── */}
               {isOverview && (
-                <div style={overviewScroll}>
+                <div data-guide="overview-cards" style={overviewScroll}>
                   {sortedLayers.map((layerId) => {
                     const scope = getScope(layerId);
                     const colors = SCOPE_COLORS[scope];
@@ -386,7 +396,7 @@ export default function AnalysisPanel({
                     </div>
                   )}
 
-                  <div style={tableWrap}>
+                  <div data-guide="district-table" style={tableWrap}>
                     <table style={table}>
                       <thead>
                         <tr>
@@ -458,6 +468,7 @@ export default function AnalysisPanel({
 
         </div>
       )}
+      <AnalysisGuide open={showGuide} onClose={() => setShowGuide(false)} />
     </div>
   );
 }
@@ -475,6 +486,11 @@ const panelHeader = {
 const panelTitle = { fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--dark-navy)' };
 const hintStyle = { fontSize: 12, color: '#7a8fa6' };
 const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
+const guideBtn = {
+  background: 'none', border: '1px solid #dde3ea', borderRadius: 4,
+  padding: '3px 10px', fontSize: 11, fontWeight: 600, color: '#467c9d',
+  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+};
 const headerGroup = {
   display: 'flex', alignItems: 'center', gap: 4,
   background: '#f8fafc', border: '1px solid #dde3ea', borderRadius: 5,

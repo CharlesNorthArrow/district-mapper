@@ -16,15 +16,13 @@ CSVs or PDF reports.
 ```
 MAPBOX_TOKEN=           # server-side only — used by /api/geocode
 NEXT_PUBLIC_MAPBOX_TOKEN=  # client-side — initializes MapView
+RESEND_API_KEY=         # used by /api/request-geography and /api/request-upgrade (email sending)
 ```
-Both should be set in Vercel project settings. Vercel project name: TBD at first deploy.
+All three must be set in Vercel project settings. Vercel project name: TBD at first deploy.
 
 ## Key files
-- `lib/layerConfig.js` — TIGERweb layer definitions. **Layer IDs must be verified** against
-  the live service before the boundary fetch is tested. Check:
-  `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Legislative/MapServer?f=json`
-- `lib/cityCouncilRegistry.js` — Tier 1 city ArcGIS endpoints. **All arcgisEndpoint values
-  are currently null stubs** — they must be researched and filled in before the Local layer works.
+- `lib/layerConfig.js` — TIGERweb layer definitions (all 13 layer IDs verified 2026-03-27)
+- `lib/cityCouncilRegistry.js` — Tier 1 city ArcGIS endpoints (all 16 cities verified 2026-03-27)
 - `components/MapView.js` — Mapbox init + imperative API (addBoundaryLayer, addPointLayer, fitBounds)
 - `pages/api/boundaries.js` — TIGERweb proxy (resolves CORS)
 - `pages/api/geocode.js` — Mapbox Geocoding proxy, batches 50 at a time
@@ -36,8 +34,6 @@ Both should be set in Vercel project settings. Vercel project name: TBD at first
 3. `AnalysisPanel` runs `assignDistricts` (Turf.js) on upload → pivot table
 4. Export: `buildEnrichedCSV` merges district columns back → download; or `@react-pdf/renderer` for PDF
 
-## Known stubs (things to complete before launch)
-- TIGERweb layer IDs in `lib/layerConfig.js` — need live verification
-- All `arcgisEndpoint` values in `lib/cityCouncilRegistry.js` — need research per city
-- Custom Shapefile upload (`.shp`) not yet implemented — only GeoJSON works today
-- `public/North_Arrow_logo.svg` — copy in from assets
+## Known gaps
+- Custom Shapefile upload (`.shp`) not yet implemented — only GeoJSON works for custom boundary upload
+- `public/North_Arrow_logo.svg` — PNG assets are present; SVG needs to be copied in from North Arrow assets
