@@ -6,6 +6,7 @@ import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
 import Legend from '../components/Legend';
 import TourOverlay from '../components/TourOverlay';
+import ProcessingBar from '../components/ProcessingBar';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies } from '../lib/geoSuggest';
@@ -79,11 +80,27 @@ export default function Home() {
   const [unlimited, setUnlimited] = useState(() => {
     try { return localStorage.getItem('dm_unlimited') === 'true'; } catch { return false; }
   });
+  const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
 
   useEffect(() => {
     if (dataBatches.length === 0) return;
-    const allPoints = dataBatches.flatMap((b) => b.points);
-    setEnrichedPoints(assignDistricts(allPoints, layerGeojson));
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      const allPoints = dataBatches.flatMap((b) => b.points);
+      setProcessingStatus({ phase: 'Analyzing districts', done: 0, total: allPoints.length });
+
+      const result = await assignDistricts(allPoints, layerGeojson, (done, total) => {
+        if (!cancelled) setProcessingStatus({ phase: 'Analyzing districts', done, total });
+      });
+
+      if (!cancelled) {
+        setEnrichedPoints(result);
+        setProcessingStatus(null);
+      }
+    }, 400);
+
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [dataBatches, layerGeojson]);
 
   // Highlight the matched district polygons on the map whenever lookup results arrive
@@ -434,6 +451,7 @@ export default function Home() {
 
         <div style={{ flex: 1, position: 'relative' }}>
           <MapView ref={mapRef} />
+          {processingStatus && <ProcessingBar status={processingStatus} />}
           <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
           {loadingLayer && (
             <div style={mapLoadingBadge}>
