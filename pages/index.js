@@ -76,6 +76,9 @@ export default function Home() {
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
   const [showTour, setShowTour] = useState(true);
+  const [unlimited, setUnlimited] = useState(() => {
+    try { return localStorage.getItem('dm_unlimited') === 'true'; } catch { return false; }
+  });
 
   useEffect(() => {
     if (dataBatches.length === 0) return;
@@ -484,6 +487,11 @@ export default function Home() {
         <UploadModal
           onClose={() => setShowUploadModal(false)}
           onUploadComplete={handleUploadComplete}
+          unlimited={unlimited}
+          onUnlock={() => {
+            localStorage.setItem('dm_unlimited', 'true');
+            setUnlimited(true);
+          }}
         />
       )}
 

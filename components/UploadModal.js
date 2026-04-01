@@ -50,8 +50,11 @@ function buildDefaultChecks(suggestions) {
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
 const ROLE_LABELS = { street: 'Street / Address', city: 'City', county: 'County', state: 'State', zip: 'ZIP / Postal' };
 
-export default function UploadModal({ onClose, onUploadComplete }) {
+export default function UploadModal({ onClose, onUploadComplete, unlimited = false, onUnlock }) {
   const [step, setStep] = useState('idle');       // idle | review | geocoding | geography
+  const [showUnlockInput, setShowUnlockInput] = useState(false);
+  const [unlockInput, setUnlockInput] = useState('');
+  const [unlockError, setUnlockError] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [audit, setAudit] = useState(null);
@@ -80,6 +83,24 @@ export default function UploadModal({ onClose, onUploadComplete }) {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const fileRef = useRef();
+
+  async function handleUnlockSubmit(e) {
+    e.preventDefault();
+    setUnlockError(false);
+    const res = await fetch('/api/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: unlockInput }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      onUnlock?.();
+      setShowUnlockInput(false);
+      setUnlockInput('');
+    } else {
+      setUnlockError(true);
+    }
+  }
 
   function parseFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
@@ -305,20 +326,50 @@ export default function UploadModal({ onClose, onUploadComplete }) {
         {step === 'idle' && (
           <div style={body}>
             <p style={hint}>Upload a CSV or Excel file with addresses or coordinates.</p>
-            <div style={tierBox}>
-              <p style={tierBoxTitle}>Free tier limits</p>
-              <div style={tierBoxRow}>
-                <span>Coordinate data (lat / lng columns)</span>
-                <span style={tierBoxValue}>{COORDS_LIMIT.toLocaleString()} rows</span>
+            {unlimited ? (
+              <div style={{ ...tierBox, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
+                <p style={{ ...tierBoxTitle, color: '#166534' }}>🔓 Unlimited access</p>
               </div>
-              <div style={tierBoxRow}>
-                <span>Address geocoding</span>
-                <span style={tierBoxValue}>{GEOCODE_LIMIT.toLocaleString()} rows</span>
+            ) : (
+              <div style={tierBox}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <p style={{ ...tierBoxTitle, margin: 0 }}>Free tier limits</p>
+                  <button
+                    style={lockIconBtn}
+                    onClick={() => { setShowUnlockInput((v) => !v); setUnlockError(false); setUnlockInput(''); }}
+                    title="Unlock"
+                  >🔒</button>
+                </div>
+                {showUnlockInput && (
+                  <form onSubmit={handleUnlockSubmit} style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                    <input
+                      autoFocus
+                      type="password"
+                      value={unlockInput}
+                      onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(false); }}
+                      style={{ ...unlockField, borderColor: unlockError ? '#fca5a5' : '#c5d0da' }}
+                      placeholder="Password"
+                    />
+                    <button type="submit" style={unlockSubmitBtn}>Unlock</button>
+                  </form>
+                )}
+                {!showUnlockInput && (
+                  <>
+                    <div style={tierBoxRow}>
+                      <span>Coordinate data (lat / lng columns)</span>
+                      <span style={tierBoxValue}>{COORDS_LIMIT.toLocaleString()} rows</span>
+                    </div>
+                    <div style={tierBoxRow}>
+                      <span>Address geocoding</span>
+                      <span style={tierBoxValue}>{GEOCODE_LIMIT.toLocaleString()} rows</span>
+                    </div>
+                    <button style={tierUpgradeLink} onClick={() => setShowUpgradeModal(true)}>
+                      Need more? Request unlimited access →
+                    </button>
+                  </>
+                )}
               </div>
-              <button style={tierUpgradeLink} onClick={() => setShowUpgradeModal(true)}>
-                Need more? Request unlimited access →
-              </button>
-            </div>
+            )}
             <input
               ref={fileRef}
               type="file"
@@ -332,7 +383,7 @@ export default function UploadModal({ onClose, onUploadComplete }) {
 
         {/* ── REVIEW: coords ── */}
         {step === 'review' && mode === 'coords' && (() => {
-          const isOverLimit = rows.length > COORDS_LIMIT;
+          const isOverLimit = !unlimited && rows.length > COORDS_LIMIT;
           return (
             <div style={body}>
               <p style={detectedBadge}>✓ Coordinate columns detected</p>
@@ -385,7 +436,7 @@ export default function UploadModal({ onClose, onUploadComplete }) {
 
         {/* ── REVIEW: address ── */}
         {step === 'review' && mode === 'address' && (() => {
-          const isOverLimit = rows.length > GEOCODE_LIMIT;
+          const isOverLimit = !unlimited && rows.length > GEOCODE_LIMIT;
           return (
             <div style={body}>
               <p style={hint}>No coordinate columns found. Build addresses from these columns:</p>
@@ -516,7 +567,7 @@ export default function UploadModal({ onClose, onUploadComplete }) {
             {(() => {
               const isCoords = manualMode === 'coords';
               const limit = isCoords ? COORDS_LIMIT : GEOCODE_LIMIT;
-              const isOverLimit = rows.length > limit;
+              const isOverLimit = !unlimited && rows.length > limit;
               return (
                 <>
                   <p style={{ ...hint, marginTop: 10 }}>
@@ -739,6 +790,18 @@ const primaryBtn = {
 const linkBtn = {
   background: 'none', border: 'none', fontSize: 12, color: 'var(--mid-blue)',
   cursor: 'pointer', padding: 0, textDecoration: 'underline', alignSelf: 'flex-start',
+};
+const lockIconBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 13, padding: 0, lineHeight: 1, opacity: 0.5,
+};
+const unlockField = {
+  flex: 1, padding: '4px 8px', fontSize: 12,
+  border: '1px solid #c5d0da', borderRadius: 3,
+};
+const unlockSubmitBtn = {
+  padding: '4px 10px', background: '#1c3557', color: '#fff',
+  border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 600, cursor: 'pointer',
 };
 const progressTrack = { height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden', marginTop: 8 };
 const progressFill = { height: '100%', background: 'var(--red)', borderRadius: 4, transition: 'width 0.3s ease' };
