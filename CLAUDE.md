@@ -17,6 +17,7 @@ CSVs or PDF reports.
 MAPBOX_TOKEN=           # server-side only — used by /api/geocode
 NEXT_PUBLIC_MAPBOX_TOKEN=  # client-side — initializes MapView
 RESEND_API_KEY=         # used by /api/request-geography and /api/request-upgrade (email sending)
+ANTHROPIC_API_KEY=      # used by /api/analyze (Plain Language Analysis tab)
 ```
 All three must be set in Vercel project settings. Vercel project name: TBD at first deploy.
 

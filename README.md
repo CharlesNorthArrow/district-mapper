@@ -20,6 +20,7 @@ Create a `.env.local` file at the project root:
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Client-side — initializes the map |
 | `MAPBOX_TOKEN` | Server-side — `/api/geocode` batch geocoding |
 | `RESEND_API_KEY` | Server-side — `/api/request-geography` and `/api/request-upgrade` (email sending) |
+| `ANTHROPIC_API_KEY` | Server-side — `/api/analyze` (Plain Language Analysis tab) |
 
 All three must also be set in Vercel project settings before deploying.
 

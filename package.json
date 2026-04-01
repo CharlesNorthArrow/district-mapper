@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.81.0",
     "@react-pdf/renderer": "^4.3.2",
     "@turf/turf": "^7.3.4",
     "@vercel/analytics": "^2.0.1",

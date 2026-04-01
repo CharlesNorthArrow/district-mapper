@@ -99,6 +99,9 @@ export default function AnalysisPanel({
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterAdding, setFilterAdding] = useState(null); // null | 'data' | 'district'
   const [officials, setOfficials] = useState(null); // null = not fetched yet
+  const [analysisText, setAnalysisText] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState(null);
   const selectAllRef = useRef(null);
 
   const { points, originalRows, headers } = uploadedData;
@@ -160,6 +163,13 @@ export default function AnalysisPanel({
       .catch(() => setOfficials({}));
   }, [activeLayer, officials]);
 
+  // Clear plain language analysis when a new dataset is uploaded
+  useEffect(() => {
+    setAnalysisText(null);
+    setAnalysisError(null);
+    setAnalysisLoading(false);
+  }, [enrichedPoints]);
+
   // Keep choropleth in sync when enriched data updates while a layer tab is active
   useEffect(() => {
     if (!activeLayer || !onChoropleth) return;
@@ -206,6 +216,38 @@ export default function AnalysisPanel({
     const layerName = getDisplayName(activeLayer).replace(/\s+/g, '-').toLowerCase();
     const csv = buildFilteredCSV(originalRows, enrichedPoints, activeLayer, checkedDistricts, activeLayers);
     downloadCSV(csv, `filtered-${layerName}-${dateStr}.csv`);
+  }
+
+  async function handleGenerateAnalysis() {
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    try {
+      const layers = activeLayers.map((layerId) => ({
+        displayName: getDisplayName(layerId),
+        totalMatched: (layerSummary[layerId] || []).reduce((s, r) => s + r.count, 0),
+        totalUnmatched: filteredPoints.filter((p) => p[layerId] == null).length,
+        topDistricts: (layerSummary[layerId] || []).slice(0, 8).map((r) => ({
+          name: r.districtName, count: r.count, pct: r.pct,
+        })),
+      }));
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          totalPoints: points.length,
+          headers,
+          sampleRows: originalRows.slice(0, 15),
+          layers,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+      setAnalysisText(data.text);
+    } catch (err) {
+      setAnalysisError(err.message);
+    } finally {
+      setAnalysisLoading(false);
+    }
   }
 
   function getDisplayName(layerId) {
@@ -297,7 +339,19 @@ export default function AnalysisPanel({
             <>
               {/* Tab bar */}
               <div data-guide="layer-tabs" style={layerTabs}>
-                {/* Overview tab — always first */}
+                {/* Plain Language tab — always first */}
+                <button
+                  style={{
+                    ...tabBtn,
+                    background: selectedLayer === 'plain-language' ? '#f5a800' : '#fef3c7',
+                    color: selectedLayer === 'plain-language' ? '#fff' : '#92400e',
+                  }}
+                  onClick={() => handleTabClick('plain-language')}
+                >
+                  Plain Language
+                </button>
+
+                {/* Overview tab */}
                 <button
                   style={{
                     ...tabBtn,
@@ -329,6 +383,58 @@ export default function AnalysisPanel({
                   );
                 })}
               </div>
+
+              {/* ── PLAIN LANGUAGE ── */}
+              {selectedLayer === 'plain-language' && (
+                <div style={plainLanguageWrap}>
+                  {!analysisText && !analysisLoading && !analysisError && (
+                    <div style={plainEmptyState}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>📝</div>
+                      <div style={plainEmptyTitle}>Plain Language Analysis</div>
+                      <p style={plainEmptyBody}>
+                        Generate a short plain-English summary of the distribution using your uploaded data and active boundary layers.
+                      </p>
+                      <button
+                        style={{ ...guideBtn, fontSize: 13, padding: '7px 18px', opacity: activeLayers.length === 0 ? 0.4 : 1 }}
+                        disabled={activeLayers.length === 0}
+                        onClick={handleGenerateAnalysis}
+                      >
+                        Generate Analysis
+                      </button>
+                      {activeLayers.length === 0 && (
+                        <p style={{ fontSize: 11, color: '#7a8fa6', marginTop: 8 }}>Enable at least one boundary layer first.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {analysisLoading && (
+                    <div style={plainEmptyState}>
+                      <div style={{ fontSize: 22, animation: 'spin 1s linear infinite', marginBottom: 8 }}>↻</div>
+                      <div style={{ fontSize: 13, color: '#7a8fa6' }}>Generating analysis…</div>
+                    </div>
+                  )}
+
+                  {analysisError && !analysisLoading && (
+                    <div style={plainEmptyState}>
+                      <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 12 }}>{analysisError}</p>
+                      <button style={{ ...guideBtn, fontSize: 12 }} onClick={handleGenerateAnalysis}>
+                        Try Again
+                      </button>
+                    </div>
+                  )}
+
+                  {analysisText && !analysisLoading && (
+                    <div style={plainResult}>
+                      {analysisText.split('\n\n').filter(Boolean).map((para, i) => (
+                        <p key={i} style={plainPara}>{para}</p>
+                      ))}
+                      <button style={plainRegenerateBtn} onClick={handleGenerateAnalysis}>
+                        ↻ Regenerate
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* ── OVERVIEW ── */}
               {isOverview && (
@@ -382,7 +488,7 @@ export default function AnalysisPanel({
               )}
 
               {/* ── LAYER DETAIL ── */}
-              {!isOverview && activeLayer && (
+              {!isOverview && activeLayer && selectedLayer !== 'plain-language' && (
                 <>
                   {checkedDistricts.size > 0 && (
                     <div style={downloadBar}>
@@ -587,4 +693,36 @@ const overviewViewBtn = {
   background: 'none', border: 'none',
   fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
   cursor: 'pointer', textAlign: 'right', alignSelf: 'flex-end',
+};
+
+// Plain Language tab styles
+const plainLanguageWrap = {
+  flex: 1, overflowY: 'auto', padding: '16px 20px',
+};
+const plainEmptyState = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center',
+  justifyContent: 'center', textAlign: 'center',
+  padding: '32px 24px', maxWidth: 400, margin: '0 auto',
+};
+const plainEmptyTitle = {
+  fontFamily: 'Poppins, sans-serif', fontWeight: 700,
+  fontSize: 14, color: '#1c3557', marginBottom: 8,
+};
+const plainEmptyBody = {
+  fontSize: 13, color: '#7a8fa6', lineHeight: 1.5,
+  marginBottom: 16,
+};
+const plainResult = {
+  maxWidth: 680,
+};
+const plainPara = {
+  fontSize: 14, color: '#2d3748', lineHeight: 1.7,
+  marginBottom: 14, fontFamily: "'Open Sans', sans-serif",
+};
+const plainRegenerateBtn = {
+  marginTop: 8,
+  background: 'none', border: 'none',
+  fontSize: 12, color: '#7a8fa6',
+  cursor: 'pointer', padding: 0,
+  textDecoration: 'underline',
 };
