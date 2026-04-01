@@ -339,18 +339,6 @@ export default function AnalysisPanel({
             <>
               {/* Tab bar */}
               <div data-guide="layer-tabs" style={layerTabs}>
-                {/* Plain Language tab — always first */}
-                <button
-                  style={{
-                    ...tabBtn,
-                    background: selectedLayer === 'plain-language' ? '#f5a800' : '#fef3c7',
-                    color: selectedLayer === 'plain-language' ? '#fff' : '#92400e',
-                  }}
-                  onClick={() => handleTabClick('plain-language')}
-                >
-                  Plain Language
-                </button>
-
                 {/* Overview tab */}
                 <button
                   style={{
@@ -361,6 +349,18 @@ export default function AnalysisPanel({
                   onClick={() => handleTabClick('overview')}
                 >
                   Overview
+                </button>
+
+                {/* Plain Language tab — after Overview */}
+                <button
+                  style={{
+                    ...tabBtn,
+                    background: selectedLayer === 'plain-language' ? '#1c3557' : '#edf2f7',
+                    color: selectedLayer === 'plain-language' ? '#fff' : '#1c3557',
+                  }}
+                  onClick={() => handleTabClick('plain-language')}
+                >
+                  🤖 Plain Language
                 </button>
 
                 {/* Per-layer tabs */}
