@@ -431,7 +431,7 @@ export default function Home() {
       setLayerColors({});
       if (geos.congressional) handleLayerToggle('congressional', true);
       if (geos['us-senate']) handleLayerToggle('us-senate', true);
-      for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary']) {
+      for (const layerId of ['counties', 'census-tracts', 'county-subdivisions', 'zcta', 'state-senate', 'state-house', 'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
         const states = geos[layerId] ?? [];
         if (states.length > 0) {
           const fipsArray = states.map((s) => STATE_FIPS[s]).filter(Boolean);
@@ -449,7 +449,7 @@ export default function Home() {
     // Tell LayerPanel only about the states/cities that were actually loaded so its
     // state selector reflects the checked choices and doesn't re-fetch extra layers
     const loadedStates = [];
-    for (const layerId of ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary', 'incorporated-places', 'zcta']) {
+    for (const layerId of ['counties', 'census-tracts', 'county-subdivisions', 'zcta', 'state-senate', 'state-house', 'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
       for (const state of (geos[layerId] ?? [])) {
         if (!loadedStates.includes(state)) loadedStates.push(state);
       }

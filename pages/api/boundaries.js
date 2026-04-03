@@ -61,6 +61,35 @@ export default async function handler(req, res) {
     resultRecordCount: String(config.resultRecordCount),
   });
 
+  // byState paginated — for layers with potentially thousands of features per state
+  if (config.queryMode === 'byState' && config.paginated) {
+    const PAGE_SIZE = 2000;
+    const allFeatures = [];
+    try {
+      for (let offset = 0; offset < 100000; offset += PAGE_SIZE) {
+        params.set('resultRecordCount', String(PAGE_SIZE));
+        params.set('resultOffset', String(offset));
+        const upstream = await fetch(`${config.endpoint}/query?${params}`, {
+          signal: AbortSignal.timeout(45000),
+        });
+        const text = await upstream.text();
+        let page;
+        try { page = JSON.parse(text); } catch {
+          return res.status(502).json({
+            error: `Data source returned non-JSON (status ${upstream.status}).`,
+          });
+        }
+        if (page.error) return res.status(502).json({ error: page.error.message || 'Query error from data source' });
+        const features = page.features || [];
+        allFeatures.push(...features);
+        if (features.length < PAGE_SIZE) break;
+      }
+    } catch (err) {
+      return res.status(502).json({ error: `Failed to reach data source: ${err.message}` });
+    }
+    return res.status(200).json({ type: 'FeatureCollection', features: allFeatures });
+  }
+
   // byBbox: paginate through all results and post-filter to centroid within state bbox.
   // Needed for ZCTA because the layer has no state FIPS field — a plain bbox intersects
   // query pulls ZCTAs from neighboring states and the 2000-record cap creates holes.

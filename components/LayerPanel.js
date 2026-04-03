@@ -9,8 +9,15 @@ import { isLayerLocked } from '../lib/tierConfig';
 const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, name]) => [name, abbr]));
 
 const US_STATES = Object.keys(STATE_FIPS).sort();
-const NATIONAL_LAYERS = ['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas'];
-const STATE_LAYERS = ['incorporated-places', 'zcta', 'state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary'];
+// Free layers first, then locked — within each section
+const NATIONAL_LAYERS = ['congressional', 'us-senate', 'tribal-lands', 'urban-areas'];
+const STATE_LAYERS = [
+  // Free tier
+  'counties', 'census-tracts', 'county-subdivisions', 'zcta',
+  'state-senate', 'state-house', 'school-unified',
+  // Locked (pro+)
+  'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones',
+];
 
 export default function LayerPanel({
   activeLayers,

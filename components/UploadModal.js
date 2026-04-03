@@ -14,24 +14,29 @@ const CITY_DISPLAY = {
   boston: 'Boston', atlanta: 'Atlanta', dc: 'Washington, DC',
 };
 
-// All national boundary layers, in display order
+// All national boundary layers — free tier first, then locked
 const NATIONAL_LAYER_OPTIONS = [
   { id: 'congressional',  label: 'Congressional Districts',      sub: 'All 435 US districts',              defaultOn: true  },
   { id: 'us-senate',      label: 'US Senate (States)',           sub: '50 states as districts',            defaultOn: false },
-  { id: 'counties',       label: 'US Counties',                  sub: '~3,100 counties nationwide',        defaultOn: false },
   { id: 'tribal-lands',   label: 'Native Tribal Lands',          sub: 'Federal Indian Reservations',       defaultOn: false },
   { id: 'urban-areas',    label: 'Urban Areas (Census-defined)', sub: 'Urban vs rural boundary areas',     defaultOn: false },
 ];
 
-// All per-state boundary layers, in display order
+// All per-state boundary layers — free tier first, then locked
 const STATE_LAYER_OPTIONS = [
-  { id: 'incorporated-places', label: 'Incorporated Places',          defaultOn: false },
-  { id: 'zcta',                label: 'ZIP Code Areas (ZCTA)',        defaultOn: false },
-  { id: 'state-senate',        label: 'State Senate Districts',       defaultOn: true  },
-  { id: 'state-house',         label: 'State House Districts',        defaultOn: false },
-  { id: 'school-unified',      label: 'Unified School Districts',     defaultOn: false },
-  { id: 'school-elementary',   label: 'Elementary School Districts',  defaultOn: false },
-  { id: 'school-secondary',    label: 'Secondary School Districts',   defaultOn: false },
+  // Free tier
+  { id: 'counties',             label: 'Counties',                       defaultOn: false },
+  { id: 'census-tracts',        label: 'Census Tracts',                  defaultOn: false },
+  { id: 'county-subdivisions',  label: 'County Subdivisions (MCDs)',     defaultOn: false },
+  { id: 'zcta',                 label: 'ZIP Code Areas (ZCTA)',          defaultOn: false },
+  { id: 'state-senate',         label: 'State Senate Districts',         defaultOn: true  },
+  { id: 'state-house',          label: 'State House Districts',          defaultOn: false },
+  { id: 'school-unified',       label: 'Unified School Districts',       defaultOn: false },
+  // Locked (pro+)
+  { id: 'incorporated-places',  label: 'Incorporated Places',            defaultOn: false },
+  { id: 'school-elementary',    label: 'Elementary School Districts',    defaultOn: false },
+  { id: 'school-secondary',     label: 'Secondary School Districts',     defaultOn: false },
+  { id: 'opportunity-zones',    label: 'Opportunity Zones',              defaultOn: false },
 ];
 
 function buildDefaultChecks(suggestions) {
