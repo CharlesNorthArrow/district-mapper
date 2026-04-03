@@ -61,14 +61,67 @@ export default async function handler(req, res) {
     resultRecordCount: String(config.resultRecordCount),
   });
 
-  // byBbox: filter by state bounding box using ArcGIS spatial query
+  // byBbox: paginate through all results and post-filter to centroid within state bbox.
+  // Needed for ZCTA because the layer has no state FIPS field — a plain bbox intersects
+  // query pulls ZCTAs from neighboring states and the 2000-record cap creates holes.
   if (config.queryMode === 'byBbox') {
     const bbox = FIPS_TO_BBOX[stateFips];
     if (!bbox) return res.status(400).json({ error: `No bounding box found for FIPS ${stateFips}` });
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+
     params.set('geometry', bbox.join(','));
     params.set('geometryType', 'esriGeometryEnvelope');
     params.set('inSR', '4326');
     params.set('spatialRel', 'esriSpatialRelIntersects');
+
+    const PAGE_SIZE = 1000;
+    const allFeatures = [];
+
+    try {
+      for (let offset = 0; offset < 20000; offset += PAGE_SIZE) {
+        params.set('resultRecordCount', String(PAGE_SIZE));
+        params.set('resultOffset', String(offset));
+
+        const upstream = await fetch(`${config.endpoint}/query?${params}`, {
+          signal: AbortSignal.timeout(45000),
+        });
+        const text = await upstream.text();
+        let page;
+        try { page = JSON.parse(text); } catch {
+          return res.status(502).json({
+            error: `Data source returned non-JSON (status ${upstream.status}).`,
+          });
+        }
+        if (page.error) return res.status(502).json({ error: page.error.message || 'Query error from data source' });
+
+        const features = page.features || [];
+        allFeatures.push(...features);
+        if (features.length < PAGE_SIZE) break; // last page
+      }
+    } catch (err) {
+      return res.status(502).json({ error: `Failed to reach data source: ${err.message}` });
+    }
+
+    // Post-filter: keep features whose bbox centroid falls within the state bbox.
+    // This removes ZCTAs from neighboring states that intersect the bbox rectangle.
+    function featureCentroid(f) {
+      let sumLng = 0, sumLat = 0, n = 0;
+      function walk(c) {
+        if (!Array.isArray(c)) return;
+        if (typeof c[0] === 'number') { sumLng += c[0]; sumLat += c[1]; n++; }
+        else c.forEach(walk);
+      }
+      walk(f.geometry?.coordinates);
+      return n > 0 ? [sumLng / n, sumLat / n] : null;
+    }
+
+    const filtered = allFeatures.filter((f) => {
+      const [cLng, cLat] = featureCentroid(f) || [];
+      if (cLng == null) return false;
+      return cLng >= minLng && cLng <= maxLng && cLat >= minLat && cLat <= maxLat;
+    });
+
+    return res.status(200).json({ type: 'FeatureCollection', features: filtered });
   }
 
   const url = `${config.endpoint}/query?${params}`;
