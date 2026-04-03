@@ -77,6 +77,8 @@ export default function ExportControls({
   numericFields,
   pointCount,
   compact = false,
+  tier = 'free',
+  onUpgradeClick,
 }) {
   const [pdfLoading, setPdfLoading] = useState(false);
   const disabled = activeLayers.length === 0;
@@ -120,9 +122,15 @@ export default function ExportControls({
           Enriched CSV
         </button>
         <span style={compactDivider}>|</span>
-        <button style={compactBtn} onClick={handlePDF} disabled={disabled || pdfLoading}>
-          {pdfLoading ? 'Generating…' : 'PDF Report'}
-        </button>
+        {tier === 'free' ? (
+          <button style={{ ...compactBtn, opacity: 0.55 }} onClick={onUpgradeClick}>
+            🔒 PDF Report
+          </button>
+        ) : (
+          <button style={compactBtn} onClick={handlePDF} disabled={disabled || pdfLoading}>
+            {pdfLoading ? 'Generating…' : 'PDF Report'}
+          </button>
+        )}
       </div>
     );
   }
@@ -132,9 +140,15 @@ export default function ExportControls({
       <button style={btnPrimary} onClick={handleCSV} disabled={disabled}>
         Download Enriched CSV
       </button>
-      <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading}>
-        {pdfLoading ? 'Generating…' : 'Download PDF Report'}
-      </button>
+      {tier === 'free' ? (
+        <button style={{ ...btnSecondary, opacity: 0.55 }} onClick={onUpgradeClick}>
+          🔒 Download PDF Report
+        </button>
+      ) : (
+        <button style={btnSecondary} onClick={handlePDF} disabled={disabled || pdfLoading}>
+          {pdfLoading ? 'Generating…' : 'Download PDF Report'}
+        </button>
+      )}
       {disabled && (
         <span style={hintStyle}>Enable at least one boundary layer to export</span>
       )}

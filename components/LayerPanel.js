@@ -4,6 +4,7 @@ import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { STATE_FIPS, STATE_ABBR } from '../lib/stateFips';
 import { STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
 import GeoRequestModal from './GeoRequestModal';
+import { isLayerLocked } from '../lib/tierConfig';
 
 const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, name]) => [name, abbr]));
 
@@ -31,6 +32,8 @@ export default function LayerPanel({
   lookupLabel,
   lookupDistricts,
   onGeographySelect,
+  tier = 'free',
+  onUpgradeClick,
 }) {
   const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
   const [selectedStates, setSelectedStates] = useState([]);
@@ -176,16 +179,23 @@ export default function LayerPanel({
   function LayerRow({ layerId, label, onToggle }) {
     const isActive = activeLayers.includes(layerId);
     const isLoading = loadingLayer === layerId;
+    const locked = isLayerLocked(layerId, tier);
     return (
-      <label style={styles.layerRow}>
+      <label
+        style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1 }}
+        onClick={locked ? (e) => { e.preventDefault(); onUpgradeClick?.(); } : undefined}
+      >
         <input
           type="checkbox"
           checked={isActive}
-          disabled={isLoading}
-          onChange={(e) => onToggle(layerId, e.target.checked)}
+          disabled={isLoading || locked}
+          onChange={locked ? undefined : (e) => onToggle(layerId, e.target.checked)}
         />
-        <span style={{ fontSize: 13 }}>{label}</span>
-        {isLoading && <span style={styles.spinner}>↻</span>}
+        <span style={{ fontSize: 13 }}>
+          {locked && <span style={{ marginRight: 3 }}>🔒</span>}
+          {label}
+        </span>
+        {isLoading && !locked && <span style={styles.spinner}>↻</span>}
       </label>
     );
   }

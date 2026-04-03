@@ -7,12 +7,16 @@ import AnalysisPanel from '../components/AnalysisPanel';
 import Legend from '../components/Legend';
 import TourOverlay from '../components/TourOverlay';
 import ProcessingBar from '../components/ProcessingBar';
+import OverflowBanner from '../components/OverflowBanner';
+import UpgradeModal from '../components/UpgradeModal';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies } from '../lib/geoSuggest';
 import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/layerColors';
 import { STATE_FIPS } from '../lib/stateFips';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
+import { getTier, setTier } from '../lib/getTier';
+import { isLayerLocked } from '../lib/tierConfig';
 
 // Colors for successive program data batches
 const BATCH_COLORS = ['#e63947', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316'];
@@ -64,6 +68,7 @@ export default function Home() {
   const uploadModeRef = useRef('overwrite');
   const hiddenBatchesRef = useRef(new Set());
   const activeLayersRef = useRef([]);
+  const tierRef = useRef(getTier());
   const [activeLayers, setActiveLayers] = useState([]);
   const [layerColors, setLayerColors] = useState({});
   const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
@@ -78,12 +83,19 @@ export default function Home() {
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
   const [showTour, setShowTour] = useState(true);
-  const [unlimited, setUnlimited] = useState(() => {
-    try { return localStorage.getItem('dm_unlimited') === 'true'; } catch { return false; }
-  });
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [tier, setTierState] = useState(() => getTier());
+  const [overflowCount, setOverflowCount] = useState(0);
+  const [showOverflowBanner, setShowOverflowBanner] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
 
+  function handleUnlock(newTier) {
+    setTier(newTier);
+    setTierState(newTier);
+  }
+
   useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
+  useEffect(() => { tierRef.current = tier; }, [tier]);
 
   useEffect(() => {
     if (dataBatches.length === 0) return;
@@ -308,12 +320,14 @@ export default function Home() {
   // National layers — no stateFips needed
   const handleLayerToggle = useCallback(async (layerId, enabled) => {
     if (!enabled) { removeLayer(layerId); return; }
+    if (isLayerLocked(layerId, tierRef.current)) return;
     await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}`, LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR);
   }, []);
 
   // State layers — fipsArray may contain multiple states; fetch in parallel and merge
   const handleStateLayerToggle = useCallback(async (layerId, enabled, fipsArray) => {
     if (!enabled || !fipsArray?.length) { removeLayer(layerId); return; }
+    if (isLayerLocked(layerId, tierRef.current)) return;
     const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
     setLoadingLayer(layerId);
     try {
@@ -343,6 +357,7 @@ export default function Home() {
   const handleCityLayerToggle = useCallback(async (citySlug, enabled) => {
     const layerId = `council-${citySlug}`;
     if (!enabled) { removeLayer(layerId); return; }
+    if (isLayerLocked(layerId, tierRef.current)) return;
     const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
     await fetchAndAddLayer(layerId, `/api/city-councils?city=${citySlug}`, color);
   }, []);
@@ -356,8 +371,14 @@ export default function Home() {
     setLayerColors((prev) => ({ ...prev, [layerId]: color }));
   }, []);
 
-  const handleUploadComplete = useCallback((points, originalRows, headers, geos, title) => {
+  const handleUploadComplete = useCallback((points, originalRows, headers, geos, title, overflow) => {
     const isAdd = uploadModeRef.current === 'add';
+
+    setShowOverflowBanner(false);
+    if (overflow > 0) {
+      setOverflowCount(overflow);
+      setShowOverflowBanner(true);
+    }
 
     if (!isAdd) {
       hiddenBatchesRef.current = new Set();
@@ -466,11 +487,20 @@ export default function Home() {
           lookupLabel={lookupLabel}
           lookupDistricts={lookupDistricts}
           onGeographySelect={handleGeographySelect}
+          tier={tier}
+          onUpgradeClick={() => setShowUpgradeModal(true)}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
           <MapView ref={mapRef} />
           {processingStatus && <ProcessingBar status={processingStatus} />}
+          {showOverflowBanner && (
+            <OverflowBanner
+              overflowCount={overflowCount}
+              onUpgrade={() => { setShowOverflowBanner(false); setShowUpgradeModal(true); }}
+              onDismiss={() => setShowOverflowBanner(false)}
+            />
+          )}
           <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
           {loadingLayer && (
             <div style={mapLoadingBadge}>
@@ -515,6 +545,8 @@ export default function Home() {
                   mapRef.current?.filterPoints(indices);
                 }
               }}
+              tier={tier}
+              onUpgradeClick={() => setShowUpgradeModal(true)}
             />
           )}
         </div>
@@ -524,11 +556,16 @@ export default function Home() {
         <UploadModal
           onClose={() => setShowUploadModal(false)}
           onUploadComplete={handleUploadComplete}
-          unlimited={unlimited}
-          onUnlock={() => {
-            localStorage.setItem('dm_unlimited', 'true');
-            setUnlimited(true);
-          }}
+          tier={tier}
+          onUnlock={handleUnlock}
+          onOpenUpgrade={() => { setShowUploadModal(false); setShowUpgradeModal(true); }}
+        />
+      )}
+
+      {showUpgradeModal && (
+        <UpgradeModal
+          onClose={() => setShowUpgradeModal(false)}
+          onUnlock={handleUnlock}
         />
       )}
 

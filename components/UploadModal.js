@@ -4,10 +4,7 @@ import * as XLSX from 'xlsx';
 import { geocodeAddresses } from '../lib/geocodeQueue';
 import { auditData } from '../lib/dataAudit';
 import { suggestGeographies } from '../lib/geoSuggest';
-import UpgradeModal from './UpgradeModal';
-
-const COORDS_LIMIT = 500;
-const GEOCODE_LIMIT = 150;
+import { getRowLimit, TIERS } from '../lib/tierConfig';
 
 const CITY_DISPLAY = {
   nyc: 'New York City', la: 'Los Angeles', chicago: 'Chicago',
@@ -50,7 +47,7 @@ function buildDefaultChecks(suggestions) {
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
 const ROLE_LABELS = { street: 'Street / Address', city: 'City', county: 'County', state: 'State', zip: 'ZIP / Postal' };
 
-export default function UploadModal({ onClose, onUploadComplete, unlimited = false, onUnlock }) {
+export default function UploadModal({ onClose, onUploadComplete, tier = 'free', onUnlock, onOpenUpgrade }) {
   const [step, setStep] = useState('idle');       // idle | review | geocoding | geography
   const [showUnlockInput, setShowUnlockInput] = useState(false);
   const [unlockInput, setUnlockInput] = useState('');
@@ -80,7 +77,6 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
   // geoChecks: national layers are booleans; per-state layers are Sets of state names; cities is a Set of slugs
   const [geoChecks, setGeoChecks] = useState(() => buildDefaultChecks({ states: [], cities: [] }));
   const [dataTitle, setDataTitle] = useState('');
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const fileRef = useRef();
 
@@ -94,7 +90,7 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
     });
     const data = await res.json();
     if (data.ok) {
-      onUnlock?.();
+      onUnlock?.('enterprise');
       setShowUnlockInput(false);
       setUnlockInput('');
     } else {
@@ -181,9 +177,9 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
     return '';
   }
 
-  function showGeoStep(resolvedPoints, resolvedRows, resolvedHeaders, geocodeFailed = []) {
+  function showGeoStep(resolvedPoints, resolvedRows, resolvedHeaders, geocodeFailed = [], overflowCount = 0) {
     const suggestions = suggestGeographies(resolvedPoints);
-    setPendingData({ points: resolvedPoints, rows: resolvedRows, headers: resolvedHeaders, geocodeFailed });
+    setPendingData({ points: resolvedPoints, rows: resolvedRows, headers: resolvedHeaders, geocodeFailed, overflowCount });
     setGeoSuggestions(suggestions);
     setGeoChecks(buildDefaultChecks(suggestions));
     setStep('geography');
@@ -217,21 +213,24 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
   }
 
   function handleStartAnalysis() {
-    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, buildGeos(), dataTitle.trim());
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, buildGeos(), dataTitle.trim(), pendingData.overflowCount ?? 0);
   }
 
   function handleSkipGeo() {
     const empty = { cities: [] };
     for (const { id } of NATIONAL_LAYER_OPTIONS) empty[id] = false;
     for (const { id } of STATE_LAYER_OPTIONS) empty[id] = [];
-    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, empty, dataTitle.trim());
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, empty, dataTitle.trim(), pendingData.overflowCount ?? 0);
   }
 
   async function handleConfirm() {
     setError('');
 
     if (mode === 'coords') {
-      const points = rows
+      const limit = getRowLimit(true, tier);
+      const overflow = limit < Infinity && rows.length > limit ? rows.length - limit : 0;
+      const rowsToProcess = overflow > 0 ? rows.slice(0, limit) : rows;
+      const points = rowsToProcess
         .map((row, i) => ({
           ...row,
           lat: parseFloat(row[latCol]),
@@ -239,7 +238,7 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
           _rowIndex: i,
         }))
         .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
-      showGeoStep(points, rows, headers);
+      showGeoStep(points, rowsToProcess, headers, [], overflow);
       return;
     }
 
@@ -260,7 +259,10 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
           setError('Select both latitude and longitude columns.');
           return;
         }
-        const points = rows
+        const limit = getRowLimit(true, tier);
+        const overflow = limit < Infinity && rows.length > limit ? rows.length - limit : 0;
+        const rowsToProcess = overflow > 0 ? rows.slice(0, limit) : rows;
+        const points = rowsToProcess
           .map((row, i) => ({
             ...row,
             lat: parseFloat(row[manualLatCol]),
@@ -268,7 +270,7 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
             _rowIndex: i,
           }))
           .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
-        showGeoStep(points, rows, headers);
+        showGeoStep(points, rowsToProcess, headers, [], overflow);
         return;
       } else if (manualMode === 'single') {
         if (!manualAddrCol) {
@@ -292,8 +294,12 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
     setStep('geocoding');
     setProgress(0);
     try {
-      const results = await geocodeAddresses(addresses, setProgress);
-      const allMapped = rows.map((row, i) => ({
+      const limit = getRowLimit(false, tier);
+      const overflow = limit < Infinity && rows.length > limit ? rows.length - limit : 0;
+      const rowsToProcess = overflow > 0 ? rows.slice(0, limit) : rows;
+      const addressesToProcess = addresses.slice(0, rowsToProcess.length);
+      const results = await geocodeAddresses(addressesToProcess, setProgress);
+      const allMapped = rowsToProcess.map((row, i) => ({
         ...row,
         lat: results[i]?.lat ?? null,
         lng: results[i]?.lng ?? null,
@@ -301,8 +307,8 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
         _rowIndex: i,
       }));
       const points = allMapped.filter((p) => p.lat !== null && p.lng !== null);
-      const geocodeFailed = rows.filter((_, i) => results[i]?.lat == null);
-      showGeoStep(points, rows, headers, geocodeFailed);
+      const geocodeFailed = rowsToProcess.filter((_, i) => results[i]?.lat == null);
+      showGeoStep(points, rowsToProcess, headers, geocodeFailed, overflow);
     } catch (err) {
       setError(err.message);
       setStep('review');
@@ -326,9 +332,9 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
         {step === 'idle' && (
           <div style={body}>
             <p style={hint}>Upload a CSV or Excel file with addresses or coordinates.</p>
-            {unlimited ? (
+            {tier !== 'free' ? (
               <div style={{ ...tierBox, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
-                <p style={{ ...tierBoxTitle, color: '#166534' }}>🔓 Unlimited access</p>
+                <p style={{ ...tierBoxTitle, color: '#166534' }}>🔓 {TIERS[tier]?.label ?? 'Unlimited'} — unlimited access</p>
               </div>
             ) : (
               <div style={tierBox}>
@@ -348,7 +354,7 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
                       value={unlockInput}
                       onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(false); }}
                       style={{ ...unlockField, borderColor: unlockError ? '#fca5a5' : '#c5d0da' }}
-                      placeholder="Password"
+                      placeholder="Access code"
                     />
                     <button type="submit" style={unlockSubmitBtn}>Unlock</button>
                   </form>
@@ -357,14 +363,14 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
                   <>
                     <div style={tierBoxRow}>
                       <span>Coordinate data (lat / lng columns)</span>
-                      <span style={tierBoxValue}>{COORDS_LIMIT.toLocaleString()} rows</span>
+                      <span style={tierBoxValue}>{TIERS.free.maxLatLon.toLocaleString()} rows</span>
                     </div>
                     <div style={tierBoxRow}>
                       <span>Address geocoding</span>
-                      <span style={tierBoxValue}>{GEOCODE_LIMIT.toLocaleString()} rows</span>
+                      <span style={tierBoxValue}>{TIERS.free.maxAddresses.toLocaleString()} rows</span>
                     </div>
-                    <button style={tierUpgradeLink} onClick={() => setShowUpgradeModal(true)}>
-                      Need more? Request unlimited access →
+                    <button style={tierUpgradeLink} onClick={() => onOpenUpgrade?.()}>
+                      Need more? Upgrade →
                     </button>
                   </>
                 )}
@@ -383,7 +389,8 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
 
         {/* ── REVIEW: coords ── */}
         {step === 'review' && mode === 'coords' && (() => {
-          const isOverLimit = !unlimited && rows.length > COORDS_LIMIT;
+          const limit = getRowLimit(true, tier);
+          const willSlice = limit < Infinity && rows.length > limit;
           return (
             <div style={body}>
               <p style={detectedBadge}>✓ Coordinate columns detected</p>
@@ -410,23 +417,17 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
               </div>
 
               <p style={{ ...hint, marginTop: 8 }}>
-                {rows.length.toLocaleString()} rows · Free tier limit: {COORDS_LIMIT.toLocaleString()}
+                {rows.length.toLocaleString()} rows{willSlice && ` · First ${limit.toLocaleString()} will be analyzed`}
               </p>
-              {isOverLimit && (
+              {willSlice && (
                 <p style={limitWarning}>
-                  ⚠ Your dataset has {rows.length.toLocaleString()} rows. The free tier allows {COORDS_LIMIT.toLocaleString()} rows for coordinate data.
+                  ⚠ Free tier limit is {limit.toLocaleString()} rows. The remaining {(rows.length - limit).toLocaleString()} rows will be skipped — upgrade to analyze all.
                 </p>
               )}
               {error && <p style={errorStyle}>{error}</p>}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-                {isOverLimit ? (
-                  <button style={upgradeBtn} onClick={() => setShowUpgradeModal(true)}>
-                    Request unlimited access →
-                  </button>
-                ) : (
-                  <button style={primaryBtn} onClick={handleConfirm}>Next →</button>
-                )}
+                <button style={primaryBtn} onClick={handleConfirm}>Next →</button>
                 <button style={linkBtn} onClick={switchToAddressMode}>Use addresses instead →</button>
               </div>
               <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
@@ -436,7 +437,8 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
 
         {/* ── REVIEW: address ── */}
         {step === 'review' && mode === 'address' && (() => {
-          const isOverLimit = !unlimited && rows.length > GEOCODE_LIMIT;
+          const limit = getRowLimit(false, tier);
+          const willSlice = limit < Infinity && rows.length > limit;
           return (
             <div style={body}>
               <p style={hint}>No coordinate columns found. Build addresses from these columns:</p>
@@ -463,23 +465,17 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
               )}
 
               <p style={{ ...hint, marginTop: 8 }}>
-                {rows.length.toLocaleString()} rows · ~{estSeconds}s to geocode · Free tier limit: {GEOCODE_LIMIT.toLocaleString()}
+                {rows.length.toLocaleString()} rows · ~{estSeconds}s to geocode{willSlice && ` · First ${limit.toLocaleString()} will be geocoded`}
               </p>
-              {isOverLimit && (
+              {willSlice && (
                 <p style={limitWarning}>
-                  ⚠ Your dataset has {rows.length.toLocaleString()} rows. The free tier allows {GEOCODE_LIMIT.toLocaleString()} rows for geocoded data.
+                  ⚠ Free tier limit is {limit.toLocaleString()} rows. The remaining {(rows.length - limit).toLocaleString()} rows will be skipped — upgrade to geocode all.
                 </p>
               )}
               {error && <p style={errorStyle}>{error}</p>}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-                {isOverLimit ? (
-                  <button style={upgradeBtn} onClick={() => setShowUpgradeModal(true)}>
-                    Request unlimited access →
-                  </button>
-                ) : (
-                  <button style={primaryBtn} onClick={handleConfirm}>Geocode &amp; Map</button>
-                )}
+                <button style={primaryBtn} onClick={handleConfirm}>Geocode &amp; Map</button>
               </div>
               <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
             </div>
@@ -566,30 +562,24 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
 
             {(() => {
               const isCoords = manualMode === 'coords';
-              const limit = isCoords ? COORDS_LIMIT : GEOCODE_LIMIT;
-              const isOverLimit = !unlimited && rows.length > limit;
+              const limit = getRowLimit(isCoords, tier);
+              const willSlice = limit < Infinity && rows.length > limit;
               return (
                 <>
                   <p style={{ ...hint, marginTop: 10 }}>
                     {rows.length.toLocaleString()} rows
                     {!isCoords && ` · ~${estSeconds}s to geocode`}
-                    {' · Free tier limit: '}{limit.toLocaleString()}
+                    {willSlice && ` · First ${limit.toLocaleString()} will be analyzed`}
                   </p>
-                  {isOverLimit && (
+                  {willSlice && (
                     <p style={limitWarning}>
-                      ⚠ Your dataset has {rows.length.toLocaleString()} rows. The free tier allows {limit.toLocaleString()} rows for {isCoords ? 'coordinate' : 'geocoded'} data.
+                      ⚠ Free tier limit is {limit.toLocaleString()} rows. The remaining {(rows.length - limit).toLocaleString()} rows will be skipped — upgrade to analyze all.
                     </p>
                   )}
                   {error && <p style={errorStyle}>{error}</p>}
-                  {isOverLimit ? (
-                    <button style={{ ...upgradeBtn, marginTop: 6 }} onClick={() => setShowUpgradeModal(true)}>
-                      Request unlimited access →
-                    </button>
-                  ) : (
-                    <button style={{ ...primaryBtn, marginTop: 6 }} onClick={handleConfirm}>
-                      {isCoords ? 'Next →' : 'Geocode & Map'}
-                    </button>
-                  )}
+                  <button style={{ ...primaryBtn, marginTop: 6 }} onClick={handleConfirm}>
+                    {isCoords ? 'Next →' : 'Geocode & Map'}
+                  </button>
                 </>
               );
             })()}
@@ -728,7 +718,6 @@ export default function UploadModal({ onClose, onUploadComplete, unlimited = fal
       </div>
     </div>
 
-    {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
     </>
   );
 }

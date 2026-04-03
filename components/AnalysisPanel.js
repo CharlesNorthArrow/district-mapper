@@ -90,6 +90,8 @@ export default function AnalysisPanel({
   onLayerIsolate,
   onChoropleth,
   onFilteredIndicesChange,
+  tier = 'free',
+  onUpgradeClick,
 }) {
   // 'overview' | null (falls back to first layer) | layerId
   const [selectedLayer, setSelectedLayer] = useState('overview');
@@ -305,6 +307,8 @@ export default function AnalysisPanel({
               numericFields={numericFields}
               pointCount={points.length}
               compact
+              tier={tier}
+              onUpgradeClick={onUpgradeClick}
             />
           </div>
 
@@ -385,7 +389,25 @@ export default function AnalysisPanel({
               </div>
 
               {/* ── PLAIN LANGUAGE ── */}
-              {selectedLayer === 'plain-language' && (
+              {selectedLayer === 'plain-language' && tier === 'free' && (
+                <div style={{ ...plainLanguageWrap, justifyContent: 'center' }}>
+                  <div style={plainEmptyState}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
+                    <div style={plainEmptyTitle}>Plain Language Analysis</div>
+                    <p style={plainEmptyBody}>
+                      AI-powered analysis is available on Pro and Enterprise plans.
+                    </p>
+                    <button
+                      style={{ ...guideBtn, fontSize: 13, padding: '7px 18px' }}
+                      onClick={onUpgradeClick}
+                    >
+                      Upgrade to unlock
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {selectedLayer === 'plain-language' && tier !== 'free' && (
                 <div style={plainLanguageWrap}>
                   {!analysisText && !analysisLoading && !analysisError && (
                     <div style={plainEmptyState}>
@@ -435,6 +457,7 @@ export default function AnalysisPanel({
                   )}
                 </div>
               )}
+
 
               {/* ── OVERVIEW ── */}
               {isOverview && (
