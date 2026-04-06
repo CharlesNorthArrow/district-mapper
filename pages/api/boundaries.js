@@ -15,6 +15,32 @@ const FIPS_TO_BBOX = Object.fromEntries(
     .filter(([, bbox]) => bbox != null)
 );
 
+// In-memory cache — persists for the lifetime of a warm function instance.
+// National layers (congressional, counties, etc.) are cached indefinitely since
+// they don't change between deploys. State layers are cached for 4 hours.
+const CACHE = new Map(); // key → { data, expiresAt (ms) | Infinity }
+
+function cacheKey(layer, stateFips) {
+  return stateFips ? `${layer}:${stateFips}` : layer;
+}
+
+function cacheGet(key) {
+  const entry = CACHE.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt !== Infinity && Date.now() > entry.expiresAt) {
+    CACHE.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function cacheSet(key, data, isNational) {
+  CACHE.set(key, {
+    data,
+    expiresAt: isNational ? Infinity : Date.now() + 4 * 60 * 60 * 1000,
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -34,6 +60,11 @@ export default async function handler(req, res) {
   if ((config.queryMode === 'byState' || config.queryMode === 'byBbox') && !stateFips) {
     return res.status(400).json({ error: `layer ${layer} requires stateFips param` });
   }
+
+  // Cache check — return immediately if we have a warm cached result
+  const key = cacheKey(layer, stateFips);
+  const cached = cacheGet(key);
+  if (cached) return res.status(200).json(cached);
 
   // Build WHERE clause
   let where;
@@ -87,7 +118,9 @@ export default async function handler(req, res) {
     } catch (err) {
       return res.status(502).json({ error: `Failed to reach data source: ${err.message}` });
     }
-    return res.status(200).json({ type: 'FeatureCollection', features: allFeatures });
+    const result = { type: 'FeatureCollection', features: allFeatures };
+    cacheSet(key, result, false);
+    return res.status(200).json(result);
   }
 
   // byBbox: paginate through all results and post-filter to centroid within state bbox.
@@ -150,7 +183,9 @@ export default async function handler(req, res) {
       return cLng >= minLng && cLng <= maxLng && cLat >= minLat && cLat <= maxLat;
     });
 
-    return res.status(200).json({ type: 'FeatureCollection', features: filtered });
+    const result = { type: 'FeatureCollection', features: filtered };
+    cacheSet(key, result, false);
+    return res.status(200).json(result);
   }
 
   const url = `${config.endpoint}/query?${params}`;
@@ -172,6 +207,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: geojson.error.message || 'Query error from data source' });
     }
 
+    cacheSet(key, geojson, config.queryMode === 'national');
     return res.status(200).json(geojson);
   } catch (err) {
     return res.status(502).json({ error: `Failed to reach data source: ${err.message}` });

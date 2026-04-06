@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "pages/api/boundaries.js": { "maxDuration": 60 },
+    "pages/api/geocode.js":    { "maxDuration": 60 }
+  }
+}
