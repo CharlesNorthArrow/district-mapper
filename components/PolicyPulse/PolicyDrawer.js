@@ -62,7 +62,9 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
         setPhase('results');
         return;
       }
-      const candidates = allCandidates.slice(0, 40);
+      // Cap at 25 — score.js returns at most 25 anyway, and candidates are
+      // already ranked by keyword hit count so the best ones come first.
+      const candidates = allCandidates.slice(0, 25);
       setCandidateCount(candidates.length);
 
       setScanStep('scoring');

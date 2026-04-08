@@ -18,7 +18,7 @@ const PER_PAGE = 20;
 const cache = {};
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-async function searchBills(jurisdiction, keyword) {
+async function searchBills(jurisdiction, keyword, attempt = 0) {
   // No session filter — let Open States return from the current session.
   // [EXPAND] Add &session=... once correct session strings per state are confirmed.
   const url = `${OPEN_STATES_BASE}/bills?jurisdiction=${encodeURIComponent(jurisdiction)}&q=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}&include=abstracts&include=sponsorships`;
@@ -27,6 +27,12 @@ async function searchBills(jurisdiction, keyword) {
     headers: { 'X-API-KEY': process.env.OPEN_STATES_API_KEY },
     signal: AbortSignal.timeout(30000),
   });
+
+  // Retry once on 502/503 (transient Open States failures)
+  if ((res.status === 502 || res.status === 503) && attempt === 0) {
+    await new Promise(r => setTimeout(r, 1500));
+    return searchBills(jurisdiction, keyword, 1);
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
