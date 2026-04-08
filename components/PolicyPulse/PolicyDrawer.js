@@ -58,12 +58,14 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
         const e = await billsRes.json().catch(() => ({}));
         throw new Error(e.error || `Bills API error ${billsRes.status}`);
       }
-      const { bills: candidates } = await billsRes.json();
-      if (!candidates?.length) {
+      const { bills: allCandidates } = await billsRes.json();
+      if (!allCandidates?.length) {
         setBills([]);
         setPhase('results');
         return;
       }
+      // Cap at 40 to keep the scoring call within Vercel's 60s function limit
+      const candidates = allCandidates.slice(0, 40);
       setCandidateCount(candidates.length);
 
       // Step 3: Score bills
