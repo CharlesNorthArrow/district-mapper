@@ -30,28 +30,22 @@ export default async function handler(req, res) {
 Organization mission: "${missionText}"
 Legislative scope: ${level} — ${districtName}
 
-Score each bill below for relevance to this organization's mission.
+Score each bill for relevance to this organization's mission.
 Return ONLY a valid JSON array. No preamble, no markdown, no explanation.
+Be concise — keep each string field under 25 words.
 
 For each bill, return:
-{
-  "id": "the bill id exactly as given",
-  "relevanceScore": number 0-100,
-  "relevanceReason": "one sentence — why this matches or doesn't match the mission",
-  "plainSummary": "2-3 plain English sentences — what would this bill actually do if passed",
-  "suggestedAction": "one concrete sentence — what this org could do about this bill"
-}
+{"id":"exact bill id","relevanceScore":0-100,"relevanceReason":"one short sentence","plainSummary":"one short sentence","suggestedAction":"one short sentence"}
 
-Only include bills with relevanceScore >= 40.
-Sort by relevanceScore descending.
+Only include bills with relevanceScore >= 40. Sort descending. Stop after 25 results.
 
-Bills to score:
+Bills:
 ${JSON.stringify(billsForPrompt)}`;
 
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
 
