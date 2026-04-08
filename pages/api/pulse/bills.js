@@ -25,7 +25,7 @@ async function searchBills(jurisdiction, keyword) {
 
   const res = await fetch(url, {
     headers: { 'X-API-KEY': process.env.OPEN_STATES_API_KEY },
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {

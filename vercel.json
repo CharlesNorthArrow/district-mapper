@@ -1,6 +1,9 @@
 {
   "functions": {
-    "pages/api/boundaries.js": { "maxDuration": 60 },
-    "pages/api/geocode.js":    { "maxDuration": 60 }
+    "pages/api/boundaries.js":        { "maxDuration": 60 },
+    "pages/api/geocode.js":            { "maxDuration": 60 },
+    "pages/api/pulse/bills.js":        { "maxDuration": 60 },
+    "pages/api/pulse/keywords.js":     { "maxDuration": 60 },
+    "pages/api/pulse/score.js":        { "maxDuration": 60 }
   }
 }
