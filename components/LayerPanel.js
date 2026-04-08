@@ -224,6 +224,13 @@ export default function LayerPanel({
           >
             North Arrow
           </a>
+          {' · '}
+          <a
+            href="/policy"
+            style={styles.attributionLink}
+          >
+            Policy Pulse
+          </a>
         </p>
       </div>
 

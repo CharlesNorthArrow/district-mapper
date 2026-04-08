@@ -108,7 +108,27 @@ export default function AnalysisPanel({
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
   const [policyDrawer, setPolicyDrawer] = useState(null); // { layerId, districtName, stateFips }
+  const [panelHeight, setPanelHeight] = useState(310);
+  const dragRef = useRef(null);
   const selectAllRef = useRef(null);
+
+  function handleDragStart(e) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = panelHeight;
+
+    function onMove(ev) {
+      const delta = startY - ev.clientY;
+      const next = Math.min(Math.max(startHeight + delta, 120), window.innerHeight - 80);
+      setPanelHeight(next);
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
 
   const { points, originalRows, headers } = uploadedData;
 
@@ -265,7 +285,19 @@ export default function AnalysisPanel({
   }
 
   return (
-    <div style={{ ...panel, height: open ? 'var(--panel-height)' : 40 }}>
+    <div style={{ ...panel, height: open ? panelHeight : 40 }}>
+      {/* Drag handle */}
+      {open && (
+        <div
+          onMouseDown={handleDragStart}
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 5,
+            cursor: 'ns-resize', zIndex: 25,
+            background: 'transparent',
+          }}
+          title="Drag to resize panel"
+        />
+      )}
       <div style={panelHeader}>
         <span style={panelTitle}>Analysis — {points.length.toLocaleString()} points</span>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
