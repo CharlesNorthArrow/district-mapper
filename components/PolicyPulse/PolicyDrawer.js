@@ -13,6 +13,8 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [phase, setPhase] = useState('idle'); // idle | form | scanning | results
+  const [scanStep, setScanStep] = useState(null); // null | 'keywords' | 'bills' | 'scoring'
+  const [candidateCount, setCandidateCount] = useState(null);
 
   useEffect(() => {
     const saved = getOrgContext();
@@ -29,26 +31,45 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
     setLoading(true);
     setError('');
     setBills([]);
+    setCandidateCount(null);
 
     try {
       // Step 1: Extract keywords
+      setScanStep('keywords');
       const kwRes = await fetch('/api/pulse/keywords', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ missionText }),
       });
+      if (!kwRes.ok) {
+        const e = await kwRes.json().catch(() => ({}));
+        throw new Error(e.error || `Keywords API error ${kwRes.status}`);
+      }
       const { keywords } = await kwRes.json();
+      if (!keywords?.length) throw new Error('No keywords returned from Claude');
 
       // Step 2: Fetch candidate bills
       // [EXPAND] Replace 'NY' with dynamic state derived from stateFips
+      setScanStep('bills');
       const billsRes = await fetch(
         `/api/pulse/bills?state=NY&keywords=${encodeURIComponent(keywords.join(','))}`
       );
+      if (!billsRes.ok) {
+        const e = await billsRes.json().catch(() => ({}));
+        throw new Error(e.error || `Bills API error ${billsRes.status}`);
+      }
       const { bills: candidates } = await billsRes.json();
+      if (!candidates?.length) {
+        setBills([]);
+        setPhase('results');
+        return;
+      }
+      setCandidateCount(candidates.length);
 
       // Step 3: Score bills
       // [EXPAND] Pass actual rep names from geo lookup for sponsor matching
       // For Phase 1, repNames is empty — sponsor badge won't show
+      setScanStep('scoring');
       const scoreRes = await fetch('/api/pulse/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,14 +81,19 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
           repNames: [], // [EXPAND] Fetch from /people.geo using a constituent point
         }),
       });
+      if (!scoreRes.ok) {
+        const e = await scoreRes.json().catch(() => ({}));
+        throw new Error(e.error || `Score API error ${scoreRes.status}`);
+      }
       const { bills: scored } = await scoreRes.json();
 
-      setBills(scored);
+      setBills(scored || []);
       setPhase('results');
     } catch (err) {
       setError(`Error: ${err.message}`);
     } finally {
       setLoading(false);
+      setScanStep(null);
     }
   }
 
@@ -150,6 +176,8 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
             bills={bills}
             loading={loading}
             error={error}
+            scanStep={scanStep}
+            candidateCount={candidateCount}
           />
         )}
       </div>
