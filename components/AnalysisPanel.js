@@ -3,9 +3,12 @@ import { summarizeByLayer } from '../lib/pointInDistrict';
 import { buildFilteredCSV, downloadCSV } from '../lib/exportHelpers';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
+import { isPolicyPulseLocked } from '../lib/tierConfig';
+import { isScannableLayer } from '../lib/policyPulse';
 import ExportControls from './ExportControls';
 import FilterBar, { applyFilters } from './FilterBar';
 import AnalysisGuide from './AnalysisGuide';
+import PolicyDrawer from './PolicyPulse/PolicyDrawer';
 
 const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
 
@@ -104,6 +107,7 @@ export default function AnalysisPanel({
   const [analysisText, setAnalysisText] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
+  const [policyDrawer, setPolicyDrawer] = useState(null); // { layerId, districtName, stateFips }
   const selectAllRef = useRef(null);
 
   const { points, originalRows, headers } = uploadedData;
@@ -562,7 +566,47 @@ export default function AnalysisPanel({
                                 <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
                               </td>
                               <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeLayer, row.districtName)}>
-                                {row.districtName}
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  {row.districtName}
+                                  {isScannableLayer(activeLayer) && !isPolicyPulseLocked(tier) && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setPolicyDrawer({ layerId: activeLayer, districtName: row.districtName, stateFips: null }); }}
+                                      style={{
+                                        background: 'none',
+                                        border: '1px solid #a9dadc',
+                                        borderRadius: 4,
+                                        padding: '2px 8px',
+                                        fontSize: 11,
+                                        color: '#1c3557',
+                                        cursor: 'pointer',
+                                        fontWeight: 600,
+                                        whiteSpace: 'nowrap',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      🔍 Scan Policy
+                                    </button>
+                                  )}
+                                  {isScannableLayer(activeLayer) && isPolicyPulseLocked(tier) && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); onUpgradeClick?.(); }}
+                                      style={{
+                                        background: 'none',
+                                        border: '1px solid #e0e0e0',
+                                        borderRadius: 4,
+                                        padding: '2px 8px',
+                                        fontSize: 11,
+                                        color: '#aaa',
+                                        cursor: 'pointer',
+                                        fontWeight: 600,
+                                        whiteSpace: 'nowrap',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      🔒 Policy
+                                    </button>
+                                  )}
+                                </span>
                               </td>
                               {activeLayer === 'congressional' && (
                                 <td style={td}>{renderRep(row.districtName, officials)}</td>
@@ -598,6 +642,14 @@ export default function AnalysisPanel({
         </div>
       )}
       <AnalysisGuide open={showGuide} onClose={() => setShowGuide(false)} />
+      {policyDrawer && (
+        <PolicyDrawer
+          layerId={policyDrawer.layerId}
+          districtName={policyDrawer.districtName}
+          stateFips={policyDrawer.stateFips}
+          onClose={() => setPolicyDrawer(null)}
+        />
+      )}
     </div>
   );
 }

@@ -52,3 +52,8 @@ input, select {
   0%, 100% { opacity: 1;    box-shadow: 0 2px 8px rgba(245,168,0,0.45); }
   50%       { opacity: 0.82; box-shadow: 0 2px 16px rgba(245,168,0,0.7); }
 }
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
