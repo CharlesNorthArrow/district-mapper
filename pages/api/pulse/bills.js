@@ -11,7 +11,7 @@ import { STATE_CONFIG } from '../../../lib/policyPulse';
 
 const OPEN_STATES_BASE = 'https://v3.openstates.org';
 const MAX_CANDIDATES = 200;
-const PER_PAGE = 50;
+const PER_PAGE = 20;
 
 // Module-level cache: { cacheKey: { bills, cachedAt } }
 // [EXPAND] Replace with Vercel KV or Redis for multi-instance production cache
