@@ -82,7 +82,9 @@ export default function Home() {
   const [lookupStatus, setLookupStatus] = useState('idle');
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
-  const [showTour, setShowTour] = useState(true);
+  const [showTour, setShowTour] = useState(() => {
+    try { return localStorage.getItem('dm_tour_dismissed') !== '1'; } catch { return true; }
+  });
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [tier, setTierState] = useState(() => getTier());
   const [overflowCount, setOverflowCount] = useState(0);

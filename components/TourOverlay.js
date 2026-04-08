@@ -35,6 +35,11 @@ const STEPS = [
 
 export default function TourOverlay({ onClose }) {
   const [step, setStep] = useState(0);
+
+  function handleDontShowAgain() {
+    try { localStorage.setItem('dm_tour_dismissed', '1'); } catch {}
+    onClose();
+  }
   const current = STEPS[step];
   const isFirst = step === 0;
   const isLast = step === STEPS.length - 1;
@@ -77,6 +82,9 @@ export default function TourOverlay({ onClose }) {
             onClick={() => setStep((s) => s - 1)}
           >
             ← Back
+          </button>
+          <button style={styles.dontShowBtn} onClick={handleDontShowAgain}>
+            Don't show again
           </button>
           {isLast ? (
             <button style={{ ...styles.navBtn, ...styles.navBtnPrimary }} onClick={onClose}>
@@ -218,5 +226,15 @@ const styles = {
   navBtnSecondary: {
     background: '#f0f4f8',
     color: '#1c3557',
+  },
+  dontShowBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: 11,
+    color: '#a0aec0',
+    cursor: 'pointer',
+    fontFamily: "'Open Sans', sans-serif",
+    textDecoration: 'underline',
+    padding: '4px 0',
   },
 };
