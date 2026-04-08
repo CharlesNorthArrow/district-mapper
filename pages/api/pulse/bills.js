@@ -66,14 +66,14 @@ export default async function handler(req, res) {
       keywordList.map(kw => searchBills(config.jurisdiction, kw))
     );
 
-    // Deduplicate by bill ID
-    const seen = new Set();
-    const merged = [];
+    // Pass 1 — collect all bills, count how many keyword searches each appears in
+    const hitCount = {};
+    const billData = {};
     for (const batch of results) {
       for (const bill of batch) {
-        if (!seen.has(bill.id)) {
-          seen.add(bill.id);
-          merged.push({
+        hitCount[bill.id] = (hitCount[bill.id] || 0) + 1;
+        if (!billData[bill.id]) {
+          billData[bill.id] = {
             id: bill.id,
             identifier: bill.identifier,
             title: bill.title,
@@ -85,12 +85,16 @@ export default async function handler(req, res) {
               primary: s.primary,
             })),
             url: config.buildUrl(bill.identifier),
-          });
+          };
         }
-        if (merged.length >= MAX_CANDIDATES) break;
       }
-      if (merged.length >= MAX_CANDIDATES) break;
     }
+
+    // Pass 2 — sort by hit count descending so the most cross-referenced bills
+    // come first; within the same tier, first-seen order is preserved
+    const merged = Object.values(billData)
+      .sort((a, b) => (hitCount[b.id] || 0) - (hitCount[a.id] || 0))
+      .slice(0, MAX_CANDIDATES);
 
     cache[cacheKey] = { bills: merged, cachedAt: Date.now() };
     return res.status(200).json({ bills: merged, fromCache: false });
