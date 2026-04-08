@@ -61,6 +61,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `layer ${layer} requires stateFips param` });
   }
 
+  // Validate stateFips against known values to prevent query injection
+  if (stateFips && !FIPS_TO_BBOX[stateFips]) {
+    return res.status(400).json({ error: 'Invalid stateFips' });
+  }
+
   // Cache check — return immediately if we have a warm cached result
   const key = cacheKey(layer, stateFips);
   const cached = cacheGet(key);

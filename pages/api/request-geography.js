@@ -1,3 +1,9 @@
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -18,22 +24,22 @@ export default async function handler(req, res) {
   const internalHtml = `
     <p>A new geography request has been submitted via District Mapper.</p>
     <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Name</td><td>${name}</td></tr>
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Email</td><td>${email}</td></tr>
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Geographical Area</td><td>${area}</td></tr>
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Boundary Type</td><td>${boundaryType}</td></tr>
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Submitted</td><td>${submittedAt} CT</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Name</td><td>${escapeHtml(name)}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Email</td><td>${escapeHtml(email)}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Geographical Area</td><td>${escapeHtml(area)}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Boundary Type</td><td>${escapeHtml(boundaryType)}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Submitted</td><td>${escapeHtml(submittedAt)} CT</td></tr>
     </table>
     <p style="margin-top:16px"><strong>Description:</strong></p>
-    <p style="background:#f5f5f5;padding:12px;border-radius:4px;font-size:13px">${description.replace(/\n/g, '<br>')}</p>
+    <p style="background:#f5f5f5;padding:12px;border-radius:4px;font-size:13px">${escapeHtml(description).replace(/\n/g, '<br>')}</p>
   `;
 
   const confirmationHtml = `
-    <p>Hi ${name},</p>
+    <p>Hi ${escapeHtml(name)},</p>
     <p>Thanks for reaching out! We've received your request for the following geography:</p>
     <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;margin:12px 0">
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Geographical Area</td><td>${area}</td></tr>
-      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Boundary Type</td><td>${boundaryType}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Geographical Area</td><td>${escapeHtml(area)}</td></tr>
+      <tr><td style="padding:6px 12px 6px 0;color:#555;font-weight:bold">Boundary Type</td><td>${escapeHtml(boundaryType)}</td></tr>
     </table>
     <p>We'll review your request and be in touch within <strong>5 business days</strong>.</p>
     <p>— The North Arrow team</p>
@@ -61,7 +67,7 @@ export default async function handler(req, res) {
 
   try {
     await sendEmail(
-      'charles@north-arrow.org',
+      process.env.INTERNAL_EMAIL || 'charles@north-arrow.org',
       `Geography Request: ${boundaryType} — ${area}`,
       internalHtml
     );

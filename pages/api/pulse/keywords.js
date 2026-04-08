@@ -20,7 +20,7 @@ These keywords will be used to search a state legislative database for relevant 
 Return only a JSON array of strings. No preamble, no explanation.
 Each keyword should be 1-3 words, specific, and policy-relevant.
 
-Mission: "${missionText}"
+Mission: ${JSON.stringify(missionText)}
 
 Example output: ["immigration", "tenant rights", "legal aid", "housing", "deportation"]`;
 

@@ -27,7 +27,7 @@ export default async function handler(req, res) {
 
   const prompt = `You are helping a nonprofit monitor state legislation relevant to their work.
 
-Organization mission: "${missionText}"
+Organization mission: ${JSON.stringify(missionText)}
 Legislative scope: ${level} — ${districtName}
 
 Score each bill for relevance to this organization's mission.
