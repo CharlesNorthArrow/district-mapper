@@ -291,12 +291,17 @@ export default function AnalysisPanel({
         <div
           onMouseDown={handleDragStart}
           style={{
-            position: 'absolute', top: 0, left: 0, right: 0, height: 5,
+            position: 'absolute', top: 0, left: 0, right: 0, height: 12,
             cursor: 'ns-resize', zIndex: 25,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: 'transparent',
           }}
-          title="Drag to resize panel"
-        />
+        >
+          <div style={{
+            width: 40, height: 4, borderRadius: 2,
+            background: '#c5d0da',
+          }} />
+        </div>
       )}
       <div style={panelHeader}>
         <span style={panelTitle}>Analysis — {points.length.toLocaleString()} points</span>
