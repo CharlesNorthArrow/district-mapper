@@ -90,6 +90,23 @@ export default function Home() {
   const [overflowCount, setOverflowCount] = useState(0);
   const [showOverflowBanner, setShowOverflowBanner] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
+  const [savedPolicies, setSavedPolicies] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('dm_saved_policies') || '[]'); } catch { return []; }
+  });
+
+  function handleSavePolicyScan({ districtName, layerId, mission, bills }) {
+    const scan = { id: Date.now(), districtName, layerId, mission, bills,
+                   savedAt: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) };
+    const updated = [scan, ...savedPolicies].slice(0, 10);
+    setSavedPolicies(updated);
+    try { localStorage.setItem('dm_saved_policies', JSON.stringify(updated)); } catch {}
+  }
+
+  function handleDeletePolicyScan(id) {
+    const updated = savedPolicies.filter(s => s.id !== id);
+    setSavedPolicies(updated);
+    try { localStorage.setItem('dm_saved_policies', JSON.stringify(updated)); } catch {}
+  }
 
   function handleUnlock(newTier) {
     setTier(newTier);
@@ -549,6 +566,9 @@ export default function Home() {
               }}
               tier={tier}
               onUpgradeClick={() => setShowUpgradeModal(true)}
+              savedPolicies={savedPolicies}
+              onSaveScan={handleSavePolicyScan}
+              onDeletePolicyScan={handleDeletePolicyScan}
             />
           )}
         </div>

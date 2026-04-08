@@ -1,20 +1,21 @@
-// Main container. Opens as a right-side drawer over the map.
-// Receives district context from AnalysisPanel.
-// Orchestrates the full keyword → fetch → score pipeline.
-
 import { useState, useEffect } from 'react';
+import { pdf } from '@react-pdf/renderer';
 import { getOrgContext } from '../../lib/orgContext';
 import OrgContextForm from './OrgContextForm';
 import BillFeed from './BillFeed';
+import PolicyPDFDoc from './PolicyPDF';
 
-export default function PolicyDrawer({ layerId, districtName, stateFips, onClose }) {
+export default function PolicyDrawer({ layerId, districtName, stateFips, onClose, onSaveScan }) {
   const [orgContext, setOrgContextState] = useState('');
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [phase, setPhase] = useState('idle'); // idle | form | scanning | results
-  const [scanStep, setScanStep] = useState(null); // null | 'keywords' | 'bills' | 'scoring'
+  const [phase, setPhase] = useState('idle');
+  const [scanStep, setScanStep] = useState(null);
   const [candidateCount, setCandidateCount] = useState(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
 
   useEffect(() => {
     const saved = getOrgContext();
@@ -34,7 +35,6 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
     setCandidateCount(null);
 
     try {
-      // Step 1: Extract keywords
       setScanStep('keywords');
       const kwRes = await fetch('/api/pulse/keywords', {
         method: 'POST',
@@ -48,8 +48,6 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
       const { keywords } = await kwRes.json();
       if (!keywords?.length) throw new Error('No keywords returned from Claude');
 
-      // Step 2: Fetch candidate bills
-      // [EXPAND] Replace 'NY' with dynamic state derived from stateFips
       setScanStep('bills');
       const billsRes = await fetch(
         `/api/pulse/bills?state=NY&keywords=${encodeURIComponent(keywords.join(','))}`
@@ -64,13 +62,9 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
         setPhase('results');
         return;
       }
-      // Cap at 40 to keep the scoring call within Vercel's 60s function limit
       const candidates = allCandidates.slice(0, 40);
       setCandidateCount(candidates.length);
 
-      // Step 3: Score bills
-      // [EXPAND] Pass actual rep names from geo lookup for sponsor matching
-      // For Phase 1, repNames is empty — sponsor badge won't show
       setScanStep('scoring');
       const scoreRes = await fetch('/api/pulse/score', {
         method: 'POST',
@@ -80,7 +74,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
           bills: candidates,
           districtName,
           level: layerId,
-          repNames: [], // [EXPAND] Fetch from /people.geo using a constituent point
+          repNames: [],
         }),
       });
       if (!scoreRes.ok) {
@@ -88,7 +82,6 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
         throw new Error(e.error || `Score API error ${scoreRes.status}`);
       }
       const { bills: scored } = await scoreRes.json();
-
       setBills(scored || []);
       setPhase('results');
     } catch (err) {
@@ -105,84 +98,169 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
     runScan(text);
   }
 
-  return (
-    <div style={{
-      position: 'absolute',
-      top: 0,
-      right: 0,
-      width: 420,
-      height: '100%',
-      background: '#fff',
-      boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
-      zIndex: 30,
-      display: 'flex',
-      flexDirection: 'column',
-      animation: 'slideInRight 0.2s ease',
-      fontFamily: "'Open Sans', sans-serif",
-    }}>
-      {/* Header */}
-      <div style={{
-        padding: '16px 20px',
-        borderBottom: '1px solid #eee',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        background: '#1c3557',
-        color: '#fff',
-      }}>
-        <div>
-          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Policy Pulse</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {districtName || 'Legislative Scan'}
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer' }}
-        >
-          ×
-        </button>
-      </div>
+  function handleSave() {
+    onSaveScan?.({ districtName, layerId, mission: orgContext, bills });
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 2000);
+  }
 
-      {/* Edit mission link (when context already exists) */}
-      {phase !== 'form' && orgContext && (
-        <div style={{
-          padding: '8px 20px',
-          background: '#f7f9fc',
-          borderBottom: '1px solid #eee',
-          fontSize: 12,
-          color: '#555',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
-            {orgContext}
-          </span>
-          <button
-            onClick={() => setPhase('form')}
-            style={{ background: 'none', border: 'none', color: '#e63947', fontSize: 11, cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}
-          >
-            Edit
-          </button>
-        </div>
+  async function handleDownloadPDF(billsToExport, label) {
+    setPdfLoading(true);
+    try {
+      const blob = await pdf(
+        <PolicyPDFDoc
+          bills={billsToExport}
+          districtName={label || districtName}
+          mission={orgContext}
+          savedAt={new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+        />
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `policy-pulse-${(label || districtName).replace(/\s+/g, '-').toLowerCase()}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setPdfLoading(false);
+    }
+  }
+
+  const drawerStyle = isExpanded
+    ? {
+        position: 'fixed',
+        top: '5vh', left: '10vw',
+        width: '80vw', height: '90vh',
+        background: '#fff',
+        boxShadow: '0 8px 48px rgba(0,0,0,0.28)',
+        zIndex: 50,
+        display: 'flex', flexDirection: 'column',
+        borderRadius: 10,
+        fontFamily: "'Open Sans', sans-serif",
+      }
+    : {
+        position: 'absolute',
+        top: 0, right: 0,
+        width: 630, height: '100%',
+        background: '#fff',
+        boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        zIndex: 30,
+        display: 'flex', flexDirection: 'column',
+        animation: 'slideInRight 0.2s ease',
+        fontFamily: "'Open Sans', sans-serif",
+      };
+
+  return (
+    <>
+      {/* Dim backdrop when expanded */}
+      {isExpanded && (
+        <div
+          onClick={() => setIsExpanded(false)}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 49,
+          }}
+        />
       )}
 
-      {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {phase === 'form' && (
-          <OrgContextForm onSubmit={handleMissionSubmit} />
+      <div style={drawerStyle}>
+        {/* Header */}
+        <div style={{
+          padding: '14px 20px',
+          borderBottom: '1px solid #eee',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#1c3557', color: '#fff', flexShrink: 0,
+          borderRadius: isExpanded ? '10px 10px 0 0' : 0,
+        }}>
+          <div>
+            <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Policy Pulse</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{districtName || 'Legislative Scan'}</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => setIsExpanded(e => !e)}
+              title={isExpanded ? 'Collapse' : 'Expand'}
+              style={{ background: 'none', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer', opacity: 0.8, lineHeight: 1 }}
+            >
+              {isExpanded ? '⤡' : '⤢'}
+            </button>
+            <button
+              onClick={onClose}
+              style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Mission context bar */}
+        {phase !== 'form' && orgContext && (
+          <div style={{
+            padding: '8px 20px', background: '#f7f9fc',
+            borderBottom: '1px solid #eee', fontSize: 12, color: '#555',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+              {orgContext}
+            </span>
+            <button
+              onClick={() => setPhase('form')}
+              style={{ background: 'none', border: 'none', color: '#e63947', fontSize: 11, cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}
+            >
+              Edit
+            </button>
+          </div>
         )}
-        {(phase === 'scanning' || phase === 'results') && (
-          <BillFeed
-            bills={bills}
-            loading={loading}
-            error={error}
-            scanStep={scanStep}
-            candidateCount={candidateCount}
-          />
+
+        {/* Results action bar */}
+        {phase === 'results' && bills.length > 0 && (
+          <div style={{
+            padding: '8px 16px', background: '#fff', borderBottom: '1px solid #eee',
+            display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+          }}>
+            <button
+              onClick={handleSave}
+              style={{
+                background: savedFlash ? '#1c3557' : 'none',
+                color: savedFlash ? '#fff' : '#1c3557',
+                border: '1px solid #1c3557',
+                borderRadius: 4, padding: '4px 12px',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              {savedFlash ? 'Saved ✓' : '💾 Save to Panel'}
+            </button>
+            <button
+              onClick={() => handleDownloadPDF(bills)}
+              disabled={pdfLoading}
+              style={{
+                background: 'none', color: '#467c9d',
+                border: '1px solid #a9dadc',
+                borderRadius: 4, padding: '4px 12px',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              {pdfLoading ? 'Generating…' : '⬇ Download PDF'}
+            </button>
+          </div>
         )}
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {phase === 'form' && <OrgContextForm onSubmit={handleMissionSubmit} />}
+          {(phase === 'scanning' || phase === 'results') && (
+            <BillFeed
+              bills={bills}
+              loading={loading}
+              error={error}
+              scanStep={scanStep}
+              candidateCount={candidateCount}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

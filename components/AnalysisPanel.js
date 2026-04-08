@@ -9,6 +9,9 @@ import ExportControls from './ExportControls';
 import FilterBar, { applyFilters } from './FilterBar';
 import AnalysisGuide from './AnalysisGuide';
 import PolicyDrawer from './PolicyPulse/PolicyDrawer';
+import BillCard from './PolicyPulse/BillCard';
+import PolicyPDFDoc from './PolicyPulse/PolicyPDF';
+import { pdf } from '@react-pdf/renderer';
 
 const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
 
@@ -95,6 +98,9 @@ export default function AnalysisPanel({
   onFilteredIndicesChange,
   tier = 'free',
   onUpgradeClick,
+  savedPolicies = [],
+  onSaveScan,
+  onDeletePolicyScan,
 }) {
   // 'overview' | null (falls back to first layer) | layerId
   const [selectedLayer, setSelectedLayer] = useState('overview');
@@ -108,6 +114,8 @@ export default function AnalysisPanel({
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
   const [policyDrawer, setPolicyDrawer] = useState(null); // { layerId, districtName, stateFips }
+  const [expandedScanId, setExpandedScanId] = useState(null);
+  const [savedPdfLoading, setSavedPdfLoading] = useState(false);
   const [panelHeight, setPanelHeight] = useState(310);
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
@@ -203,6 +211,23 @@ export default function AnalysisPanel({
     const counts = Object.fromEntries((layerSummary[activeLayer] || []).map(r => [r.districtName, r.count]));
     onChoropleth(activeLayer, counts, cfg.districtField, cfg.stateField);
   }, [layerSummary, activeLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSavedPDF(scan) {
+    setSavedPdfLoading(scan.id);
+    try {
+      const blob = await pdf(
+        <PolicyPDFDoc bills={scan.bills} districtName={scan.districtName} mission={scan.mission} savedAt={scan.savedAt} />
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `policy-pulse-${scan.districtName.replace(/\s+/g, '-').toLowerCase()}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setSavedPdfLoading(false);
+    }
+  }
 
   function handleTabClick(id) {
     setSelectedLayer(id);
@@ -408,6 +433,20 @@ export default function AnalysisPanel({
                   🤖 Plain Language
                 </button>
 
+                {/* Saved Policies tab */}
+                {savedPolicies.length > 0 && (
+                  <button
+                    style={{
+                      ...tabBtn,
+                      background: selectedLayer === 'saved-policies' ? '#1c3557' : '#edf2f7',
+                      color: selectedLayer === 'saved-policies' ? '#fff' : '#1c3557',
+                    }}
+                    onClick={() => handleTabClick('saved-policies')}
+                  >
+                    🏛️ Saved Policies {savedPolicies.length > 0 && `(${savedPolicies.length})`}
+                  </button>
+                )}
+
                 {/* Per-layer tabs */}
                 {sortedLayers.map((id) => {
                   const scope = getScope(id);
@@ -499,6 +538,51 @@ export default function AnalysisPanel({
                 </div>
               )}
 
+
+              {/* ── SAVED POLICIES ── */}
+              {selectedLayer === 'saved-policies' && (
+                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
+                  {savedPolicies.map(scan => (
+                    <div key={scan.id} style={{ border: '1px solid #dde3ea', borderRadius: 6, marginBottom: 10, overflow: 'hidden' }}>
+                      {/* Scan header */}
+                      <div style={{ background: '#f7f9fc', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1c3557' }}>{scan.districtName}</div>
+                          <div style={{ fontSize: 11, color: '#888' }}>{scan.savedAt} · {scan.bills.length} bill{scan.bills.length !== 1 ? 's' : ''}</div>
+                          <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{scan.mission}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          <button
+                            onClick={() => handleSavedPDF(scan)}
+                            disabled={savedPdfLoading === scan.id}
+                            style={{ background: 'none', border: '1px solid #a9dadc', borderRadius: 4, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: '#467c9d', cursor: 'pointer' }}
+                          >
+                            {savedPdfLoading === scan.id ? '…' : '⬇ PDF'}
+                          </button>
+                          <button
+                            onClick={() => setExpandedScanId(expandedScanId === scan.id ? null : scan.id)}
+                            style={{ background: 'none', border: '1px solid #dde3ea', borderRadius: 4, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: '#1c3557', cursor: 'pointer' }}
+                          >
+                            {expandedScanId === scan.id ? 'Hide' : 'View'}
+                          </button>
+                          <button
+                            onClick={() => onDeletePolicyScan?.(scan.id)}
+                            style={{ background: 'none', border: 'none', color: '#aaa', fontSize: 14, cursor: 'pointer', padding: '0 2px' }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                      {/* Expanded bills */}
+                      {expandedScanId === scan.id && (
+                        <div style={{ padding: '10px 12px', borderTop: '1px solid #eee' }}>
+                          {scan.bills.map(bill => <BillCard key={bill.id} bill={bill} />)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* ── OVERVIEW ── */}
               {isOverview && (
@@ -685,6 +769,7 @@ export default function AnalysisPanel({
           districtName={policyDrawer.districtName}
           stateFips={policyDrawer.stateFips}
           onClose={() => setPolicyDrawer(null)}
+          onSaveScan={onSaveScan}
         />
       )}
     </div>
