@@ -18,15 +18,20 @@ const PER_PAGE = 50;
 const cache = {};
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-async function searchBills(jurisdiction, session, keyword) {
-  const url = `${OPEN_STATES_BASE}/bills?jurisdiction=${encodeURIComponent(jurisdiction)}&session=${encodeURIComponent(session)}&q=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}&include=abstracts&include=sponsorships`;
+async function searchBills(jurisdiction, keyword) {
+  // No session filter — let Open States return from the current session.
+  // [EXPAND] Add &session=... once correct session strings per state are confirmed.
+  const url = `${OPEN_STATES_BASE}/bills?jurisdiction=${encodeURIComponent(jurisdiction)}&q=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}&include=abstracts&include=sponsorships`;
 
   const res = await fetch(url, {
     headers: { 'X-API-KEY': process.env.OPEN_STATES_API_KEY },
     signal: AbortSignal.timeout(15000),
   });
 
-  if (!res.ok) throw new Error(`Open States error ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Open States ${res.status}: ${body.slice(0, 200)}`);
+  }
   const data = await res.json();
   return data.results || [];
 }
@@ -58,7 +63,7 @@ export default async function handler(req, res) {
   try {
     // Parallel searches for all keywords
     const results = await Promise.all(
-      keywordList.map(kw => searchBills(config.jurisdiction, config.session, kw))
+      keywordList.map(kw => searchBills(config.jurisdiction, kw))
     );
 
     // Deduplicate by bill ID
