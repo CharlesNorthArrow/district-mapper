@@ -259,6 +259,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
               error={error}
               scanStep={scanStep}
               candidateCount={candidateCount}
+              isExpanded={isExpanded}
             />
           )}
         </div>
