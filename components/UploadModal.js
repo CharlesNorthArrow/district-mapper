@@ -3,57 +3,14 @@ import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { geocodeAddresses } from '../lib/geocodeQueue';
 import { auditData } from '../lib/dataAudit';
-import { suggestGeographies } from '../lib/geoSuggest';
 import { getRowLimit, TIERS } from '../lib/tierConfig';
-
-const CITY_DISPLAY = {
-  nyc: 'New York City', la: 'Los Angeles', chicago: 'Chicago',
-  houston: 'Houston', phoenix: 'Phoenix', philadelphia: 'Philadelphia',
-  'san-antonio': 'San Antonio', 'san-diego': 'San Diego', dallas: 'Dallas',
-  seattle: 'Seattle', portland: 'Portland', denver: 'Denver',
-  boston: 'Boston', atlanta: 'Atlanta', dc: 'Washington, DC',
-};
-
-// All national boundary layers — free tier first, then locked
-const NATIONAL_LAYER_OPTIONS = [
-  { id: 'congressional',  label: 'Congressional Districts',      sub: 'All 435 US districts',              defaultOn: true  },
-  { id: 'us-senate',      label: 'US Senate (States)',           sub: '50 states as districts',            defaultOn: false },
-  { id: 'tribal-lands',   label: 'Native Tribal Lands',          sub: 'Federal Indian Reservations',       defaultOn: false },
-  { id: 'urban-areas',    label: 'Urban Areas (Census-defined)', sub: 'Urban vs rural boundary areas',     defaultOn: false },
-];
-
-// All per-state boundary layers — free tier first, then locked
-const STATE_LAYER_OPTIONS = [
-  // Free tier
-  { id: 'counties',             label: 'Counties',                       defaultOn: false },
-  { id: 'census-tracts',        label: 'Census Tracts',                  defaultOn: false },
-  { id: 'county-subdivisions',  label: 'County Subdivisions (MCDs)',     defaultOn: false },
-  { id: 'zcta',                 label: 'ZIP Code Areas (ZCTA)',          defaultOn: false },
-  { id: 'state-senate',         label: 'State Senate Districts',         defaultOn: true  },
-  { id: 'state-house',          label: 'State House Districts',          defaultOn: false },
-  { id: 'school-unified',       label: 'Unified School Districts',       defaultOn: false },
-  // Locked (pro+)
-  { id: 'incorporated-places',  label: 'Incorporated Places',            defaultOn: false },
-  { id: 'school-elementary',    label: 'Elementary School Districts',    defaultOn: false },
-  { id: 'school-secondary',     label: 'Secondary School Districts',     defaultOn: false },
-  { id: 'opportunity-zones',    label: 'Opportunity Zones',              defaultOn: false },
-];
-
-function buildDefaultChecks(suggestions) {
-  const checks = { cities: new Set(suggestions.cities) };
-  for (const { id, defaultOn } of NATIONAL_LAYER_OPTIONS) checks[id] = defaultOn;
-  for (const { id, defaultOn } of STATE_LAYER_OPTIONS) {
-    checks[id] = defaultOn ? new Set(suggestions.states) : new Set();
-  }
-  return checks;
-}
 
 // Default enabled state per address role
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
 const ROLE_LABELS = { street: 'Street / Address', city: 'City', county: 'County', state: 'State', zip: 'ZIP / Postal' };
 
 export default function UploadModal({ onClose, onUploadComplete, tier = 'free', onUnlock, onOpenUpgrade }) {
-  const [step, setStep] = useState('idle');       // idle | review | geocoding | geography
+  const [step, setStep] = useState('idle');       // idle | review | geocoding | complete
   const [showUnlockInput, setShowUnlockInput] = useState(false);
   const [unlockInput, setUnlockInput] = useState('');
   const [unlockError, setUnlockError] = useState(false);
@@ -76,11 +33,8 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
 
-  // Geography step
-  const [pendingData, setPendingData] = useState(null);    // { points, rows, headers, geocodeFailed }
-  const [geoSuggestions, setGeoSuggestions] = useState(null);
-  // geoChecks: national layers are booleans; per-state layers are Sets of state names; cities is a Set of slugs
-  const [geoChecks, setGeoChecks] = useState(() => buildDefaultChecks({ states: [], cities: [] }));
+  // Completion step
+  const [pendingData, setPendingData] = useState(null);    // { points, rows, headers, geocodeFailed, overflowCount }
   const [dataTitle, setDataTitle] = useState('');
 
   const fileRef = useRef();
@@ -182,50 +136,13 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
     return '';
   }
 
-  function showGeoStep(resolvedPoints, resolvedRows, resolvedHeaders, geocodeFailed = [], overflowCount = 0) {
-    const suggestions = suggestGeographies(resolvedPoints);
+  function showCompleteStep(resolvedPoints, resolvedRows, resolvedHeaders, geocodeFailed = [], overflowCount = 0) {
     setPendingData({ points: resolvedPoints, rows: resolvedRows, headers: resolvedHeaders, geocodeFailed, overflowCount });
-    setGeoSuggestions(suggestions);
-    setGeoChecks(buildDefaultChecks(suggestions));
-    setStep('geography');
+    setStep('complete');
   }
 
-  function toggleNational(layerId) {
-    setGeoChecks((prev) => ({ ...prev, [layerId]: !prev[layerId] }));
-  }
-
-  function toggleStateLayer(layerId, state) {
-    setGeoChecks((prev) => {
-      const s = new Set(prev[layerId]);
-      s.has(state) ? s.delete(state) : s.add(state);
-      return { ...prev, [layerId]: s };
-    });
-  }
-
-  function toggleCity(slug) {
-    setGeoChecks((prev) => {
-      const s = new Set(prev.cities);
-      s.has(slug) ? s.delete(slug) : s.add(slug);
-      return { ...prev, cities: s };
-    });
-  }
-
-  function buildGeos() {
-    const geos = { cities: [...geoChecks.cities] };
-    for (const { id } of NATIONAL_LAYER_OPTIONS) geos[id] = geoChecks[id];
-    for (const { id } of STATE_LAYER_OPTIONS) geos[id] = [...geoChecks[id]];
-    return geos;
-  }
-
-  function handleStartAnalysis() {
-    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, buildGeos(), dataTitle.trim(), pendingData.overflowCount ?? 0);
-  }
-
-  function handleSkipGeo() {
-    const empty = { cities: [] };
-    for (const { id } of NATIONAL_LAYER_OPTIONS) empty[id] = false;
-    for (const { id } of STATE_LAYER_OPTIONS) empty[id] = [];
-    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, empty, dataTitle.trim(), pendingData.overflowCount ?? 0);
+  function handleMapData() {
+    onUploadComplete(pendingData.points, pendingData.rows, pendingData.headers, null, dataTitle.trim(), pendingData.overflowCount ?? 0);
   }
 
   async function handleConfirm() {
@@ -243,7 +160,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
           _rowIndex: i,
         }))
         .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
-      showGeoStep(points, rowsToProcess, headers, [], overflow);
+      showCompleteStep(points, rowsToProcess, headers, [], overflow);
       return;
     }
 
@@ -275,7 +192,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
             _rowIndex: i,
           }))
           .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
-        showGeoStep(points, rowsToProcess, headers, [], overflow);
+        showCompleteStep(points, rowsToProcess, headers, [], overflow);
         return;
       } else if (manualMode === 'single') {
         if (!manualAddrCol) {
@@ -313,7 +230,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
       }));
       const points = allMapped.filter((p) => p.lat !== null && p.lng !== null);
       const geocodeFailed = rowsToProcess.filter((_, i) => results[i]?.lat == null);
-      showGeoStep(points, rowsToProcess, headers, geocodeFailed, overflow);
+      showCompleteStep(points, rowsToProcess, headers, geocodeFailed, overflow);
     } catch (err) {
       setError(err.message);
       setStep('review');
@@ -602,8 +519,8 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
           </div>
         )}
 
-        {/* ── GEOGRAPHY ── */}
-        {step === 'geography' && pendingData && (
+        {/* ── COMPLETE ── */}
+        {step === 'complete' && pendingData && (
           <div style={body}>
             {pendingData.geocodeFailed?.length > 0 ? (
               <div style={geocodeReport}>
@@ -615,7 +532,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                 <button
                   style={linkBtn}
                   onClick={() => {
-                    const csvRows = [pendingData.headers.join(','), ...pendingData.geocodeFailed.map(r => pendingData.headers.map(h => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
+                    const csvRows = [pendingData.headers.join(','), ...pendingData.geocodeFailed.map((r) => pendingData.headers.map((h) => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
                     const blob = new Blob([csvRows], { type: 'text/csv' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);
@@ -643,81 +560,11 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
               />
             </div>
 
-            <p style={hint}>
-              {geoSuggestions?.states.length > 0 || geoSuggestions?.cities.length > 0
-                ? 'We detected the following geographies in your data. Choose which boundary layers to load:'
-                : 'Select boundary layers to load for analysis:'}
-            </p>
-
-            <div style={geoList}>
-              {/* National layers */}
-              <div style={sectionDivider}>National</div>
-              {NATIONAL_LAYER_OPTIONS.map((layer, i) => (
-                <label
-                  key={layer.id}
-                  style={{ ...geoRow, borderBottom: i < NATIONAL_LAYER_OPTIONS.length - 1 ? '1px solid #f0f4f8' : 'none' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={geoChecks[layer.id]}
-                    onChange={() => toggleNational(layer.id)}
-                  />
-                  <div>
-                    <div style={geoItemLabel}>{layer.label}</div>
-                    <div style={geoItemSub}>{layer.sub}</div>
-                  </div>
-                </label>
-              ))}
-
-              {/* Per-state layers — one section per detected state */}
-              {geoSuggestions?.states.map((state) => (
-                <div key={state}>
-                  <div style={sectionDivider}>{state}</div>
-                  {STATE_LAYER_OPTIONS.map((layer, i) => (
-                    <label
-                      key={layer.id}
-                      style={{ ...geoRow, borderBottom: i < STATE_LAYER_OPTIONS.length - 1 ? '1px solid #f0f4f8' : 'none' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={geoChecks[layer.id].has(state)}
-                        onChange={() => toggleStateLayer(layer.id, state)}
-                      />
-                      <div style={geoItemLabel}>{layer.label}</div>
-                    </label>
-                  ))}
-                </div>
-              ))}
-
-              {/* City council layers */}
-              {geoSuggestions?.cities.length > 0 && (
-                <div>
-                  <div style={sectionDivider}>City Council Districts</div>
-                  {geoSuggestions.cities.map((slug, i) => (
-                    <label
-                      key={slug}
-                      style={{ ...geoRow, borderBottom: i < geoSuggestions.cities.length - 1 ? '1px solid #f0f4f8' : 'none' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={geoChecks.cities.has(slug)}
-                        onChange={() => toggleCity(slug)}
-                      />
-                      <div style={geoItemLabel}>{CITY_DISPLAY[slug] || slug}</div>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
             <p style={{ ...hint, color: '#7a8fa6', fontSize: 12 }}>
-              You can add or remove layers at any time from the panel on the left.
+              Your data will appear on the map. Enable boundary layers from the panel on the left to begin analysis.
             </p>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-              <button style={primaryBtn} onClick={handleStartAnalysis}>Start Analysis →</button>
-              <button style={linkBtn} onClick={handleSkipGeo}>Skip layers</button>
-            </div>
+            <button style={primaryBtn} onClick={handleMapData}>Map my data →</button>
           </div>
         )}
       </div>
@@ -800,24 +647,6 @@ const unlockSubmitBtn = {
 const progressTrack = { height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden', marginTop: 8 };
 const progressFill = { height: '100%', background: 'var(--red)', borderRadius: 4, transition: 'width 0.3s ease' };
 
-// Geography step styles
-const geoList = {
-  border: '1px solid #dde3ea', borderRadius: 4, overflow: 'hidden',
-  display: 'flex', flexDirection: 'column',
-};
-const geoRow = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  padding: '10px 14px', cursor: 'pointer',
-  borderBottom: '1px solid #f0f4f8', background: '#fff',
-};
-const geoItemLabel = { fontSize: 13, fontWeight: 600, color: '#1c3557' };
-const geoItemSub = { fontSize: 11, color: '#7a8fa6', marginTop: 2 };
-const sectionDivider = {
-  fontSize: 11, fontWeight: 600, color: '#7a8fa6',
-  textTransform: 'uppercase', letterSpacing: '0.05em',
-  padding: '7px 14px 5px', background: '#f8fafc',
-  borderBottom: '1px solid #f0f4f8',
-};
 const geocodeReport = {
   fontSize: 12, color: '#92400e', background: '#fef3c7',
   border: '1px solid #fcd34d', borderRadius: 3,
@@ -828,11 +657,4 @@ const limitWarning = {
   fontSize: 13, color: '#b91c1c', background: '#fee2e2',
   border: '1px solid #fca5a5', borderRadius: 3,
   padding: '7px 10px', margin: 0,
-};
-const upgradeBtn = {
-  padding: '9px 18px',
-  background: '#fef3c7', color: '#92400e',
-  border: '1px solid #fcd34d', borderRadius: 4,
-  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  alignSelf: 'flex-start',
 };

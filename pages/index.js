@@ -91,7 +91,6 @@ export default function Home() {
   const [showOverflowBanner, setShowOverflowBanner] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
   const [activeChoroLayer, setActiveChoroLayer] = useState(null);
-  const [suggestedLayerIds, setSuggestedLayerIds] = useState(new Set());
   const [savedPolicies, setSavedPolicies] = useState(() => {
     try { return JSON.parse(localStorage.getItem('dm_saved_policies') || '[]'); } catch { return []; }
   });
@@ -386,7 +385,6 @@ export default function Home() {
       setActiveChoroLayer(null);
       mapRef.current?.showAllLayers();
     }
-    setSuggestedLayerIds((prev) => { const n = new Set(prev); n.delete(layerId); return n; });
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
     setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
     setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
@@ -542,23 +540,6 @@ export default function Home() {
       }
     }
 
-    // Track which layers were auto-loaded so the sidebar can highlight them
-    if (!isAdd) {
-      const suggested = new Set();
-      if (geos.congressional) suggested.add('congressional');
-      if (geos['us-senate']) suggested.add('us-senate');
-      for (const layerId of ['counties', 'census-tracts', 'county-subdivisions', 'zcta', 'state-senate', 'state-house', 'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
-        if ((geos[layerId] ?? []).length > 0) suggested.add(layerId);
-      }
-      for (const slug of (geos.cities ?? [])) {
-        suggested.add(`council-${slug}`);
-        for (const { slug: extraSlug } of CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []) {
-          suggested.add(`council-${extraSlug}`);
-        }
-      }
-      setSuggestedLayerIds(suggested);
-    }
-
     // Tell LayerPanel only about the states/cities that were actually loaded so its
     // state selector reflects the checked choices and doesn't re-fetch extra layers
     const loadedStates = [];
@@ -604,7 +585,6 @@ export default function Home() {
           onUpgradeClick={() => setShowUpgradeModal(true)}
           layerCounts={layerCounts}
           layerColors={layerColors}
-          suggestedLayerIds={suggestedLayerIds}
           activeChoroLayer={activeChoroLayer}
           onChoroLayerSelect={handleChoroLayerSelect}
         />
