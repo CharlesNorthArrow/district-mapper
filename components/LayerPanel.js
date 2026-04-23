@@ -42,6 +42,8 @@ export default function LayerPanel({
   tier = 'free',
   onUpgradeClick,
   layerCounts = {},
+  layerColors = {},
+  suggestedLayerIds,
   activeChoroLayer,
   onChoroLayerSelect,
 }) {
@@ -193,8 +195,10 @@ export default function LayerPanel({
     const isChoro = activeChoroLayer === layerId;
     const count = layerCounts[layerId];
     const canAnalyze = hasData && isActive && !locked;
+    const isSuggested = suggestedLayerIds?.has(layerId) && isActive;
+    const layerColor = layerColors[layerId];
     return (
-      <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1 }}>
+      <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1, borderLeft: isSuggested ? `3px solid ${layerColor || '#467c9d'}` : '3px solid transparent', paddingLeft: isSuggested ? 5 : 8 }}>
         <input
           type="checkbox"
           checked={isActive}
