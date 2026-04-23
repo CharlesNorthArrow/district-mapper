@@ -11,7 +11,22 @@ import OverflowBanner from '../components/OverflowBanner';
 import UpgradeModal from '../components/UpgradeModal';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
-import { suggestGeographies } from '../lib/geoSuggest';
+import { suggestGeographies, STATE_BBOX } from '../lib/geoSuggest';
+
+// Return all state names whose bounding box contains at least one of the given points.
+// Used to auto-select states in the sidebar after upload.
+function detectStatesFromPoints(points) {
+  const detected = [];
+  for (const [stateName, bbox] of Object.entries(STATE_BBOX)) {
+    if (!bbox) continue;
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+    const hit = points.some(
+      (p) => p.lng >= minLng && p.lng <= maxLng && p.lat >= minLat && p.lat <= maxLat
+    );
+    if (hit) detected.push(stateName);
+  }
+  return detected;
+}
 import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/layerColors';
 import { STATE_FIPS } from '../lib/stateFips';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
@@ -512,6 +527,14 @@ export default function Home() {
     });
 
     setShowUploadModal(false);
+
+    // Auto-select states in the sidebar based on where the uploaded points land
+    if (!isAdd && points.length > 0) {
+      const detectedStates = detectStatesFromPoints(points);
+      if (detectedStates.length > 0) {
+        setGeoSuggestions({ states: detectedStates, cities: [] });
+      }
+    }
 
     if (!geos) return;
     // Only load boundary layers on first upload or overwrite (not on add)

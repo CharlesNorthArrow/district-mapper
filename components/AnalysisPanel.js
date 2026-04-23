@@ -368,7 +368,7 @@ export default function AnalysisPanel({
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{matched.toLocaleString()}</td>
                         <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{pct}%</td>
                         <td style={{ ...td, textAlign: 'right' }}>
-                          <span style={analyzeBtn}>Analyze →</span>
+                          <span style={analyzeBtn}>See Breakdown →</span>
                         </td>
                       </tr>
                     );
@@ -406,6 +406,7 @@ export default function AnalysisPanel({
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, textAlign: 'center' }}>Party</th>}
                       <th style={{ ...th, textAlign: 'right' }}>Points</th>
                       <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
+                      <th style={{ ...th, width: 70 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -455,6 +456,14 @@ export default function AnalysisPanel({
                           )}
                           <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
+                          <td style={{ ...td, textAlign: 'right', paddingRight: 12 }}>
+                            <button
+                              style={zoomInBtn}
+                              onClick={(e) => { e.stopPropagation(); onDistrictSelect(activeChoroLayer, row.districtName); }}
+                            >
+                              Zoom In
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -468,6 +477,7 @@ export default function AnalysisPanel({
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
                           {((unmatchedCount / points.length) * 100).toFixed(1)}%
                         </td>
+                        <td style={td} />
                       </tr>
                     )}
                   </tbody>
@@ -584,4 +594,9 @@ const scanBtnLocked = {
   background: 'none', border: '1px solid #e0e0e0', borderRadius: 4,
   padding: '2px 8px', fontSize: 11, color: '#aaa',
   cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
+};
+const zoomInBtn = {
+  background: 'none', border: '1px solid #c5d0da', borderRadius: 4,
+  padding: '2px 8px', fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
+  cursor: 'pointer', whiteSpace: 'nowrap',
 };
