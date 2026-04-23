@@ -13,7 +13,7 @@ const US_STATES = Object.keys(STATE_FIPS).sort();
 const NATIONAL_LAYERS = ['congressional', 'us-senate', 'tribal-lands', 'urban-areas'];
 const STATE_LAYERS = [
   // Free tier
-  'counties', 'census-tracts', 'county-subdivisions', 'zcta',
+  'counties', 'county-subdivisions', 'zcta',
   'state-senate', 'state-house', 'school-unified',
   // Locked (pro+)
   'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones',
@@ -194,10 +194,10 @@ export default function LayerPanel({
     const isChoro = activeChoroLayer === layerId;
     const count = layerCounts[layerId];
     const canAnalyze = hasData && isActive && !locked;
-    const hasMatches = count > 0;
     const layerColor = layerColors[layerId];
+    const showBorder = isActive && !!layerColor;
     return (
-      <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1, borderLeft: hasMatches ? `3px solid ${layerColor || '#467c9d'}` : '3px solid transparent', paddingLeft: hasMatches ? 5 : 8 }}>
+      <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1, borderLeft: showBorder ? `3px solid ${layerColor}` : '3px solid transparent', paddingLeft: showBorder ? 5 : 8 }}>
         <input
           type="checkbox"
           checked={isActive}
