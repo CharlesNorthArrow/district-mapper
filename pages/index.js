@@ -660,6 +660,7 @@ export default function Home() {
               enrichedPoints={enrichedPoints}
               activeLayers={activeLayers}
               layerCounts={layerCounts}
+              layerColors={layerColors}
               selectedDistrict={selectedDistrict}
               onDistrictSelect={handleDistrictSelect}
               activeChoroLayer={activeChoroLayer}

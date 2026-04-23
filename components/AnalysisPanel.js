@@ -88,6 +88,7 @@ export default function AnalysisPanel({
   enrichedPoints,
   activeLayers,
   layerCounts = {},
+  layerColors = {},
   selectedDistrict,
   onDistrictSelect,
   activeChoroLayer,
@@ -365,7 +366,7 @@ export default function AnalysisPanel({
                       >
                         <td style={td}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 2, background: colors.active, flexShrink: 0, display: 'inline-block' }} />
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: layerColors[layerId] || colors.active, flexShrink: 0, display: 'inline-block' }} />
                             {getDisplayName(layerId)}
                             <span style={analyzeBtn}>See Breakdown →</span>
                           </span>
