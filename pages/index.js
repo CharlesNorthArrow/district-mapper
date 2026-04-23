@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import MapView from '../components/MapView';
 import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
@@ -90,6 +90,7 @@ export default function Home() {
   const [overflowCount, setOverflowCount] = useState(0);
   const [showOverflowBanner, setShowOverflowBanner] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
+  const [activeChoroLayer, setActiveChoroLayer] = useState(null);
   const [savedPolicies, setSavedPolicies] = useState(() => {
     try { return JSON.parse(localStorage.getItem('dm_saved_policies') || '[]'); } catch { return []; }
   });
@@ -107,6 +108,75 @@ export default function Home() {
     setSavedPolicies(updated);
     try { localStorage.setItem('dm_saved_policies', JSON.stringify(updated)); } catch {}
   }
+
+  // Per-layer matched point counts — used for layer panel badges and analysis panel overview
+  const layerCounts = useMemo(() => {
+    if (enrichedPoints.length === 0) return {};
+    const counts = {};
+    for (const layerId of activeLayers) {
+      counts[layerId] = enrichedPoints.filter((p) => p[layerId] != null).length;
+    }
+    return counts;
+  }, [enrichedPoints, activeLayers]);
+
+  function getDistrictField(layerId) {
+    if (LAYER_CONFIG[layerId]) return { districtField: LAYER_CONFIG[layerId].districtField, stateField: LAYER_CONFIG[layerId].stateField };
+    if (layerId.startsWith('council-')) {
+      const slug = layerId.slice('council-'.length);
+      const city = CITY_COUNCIL_REGISTRY[slug];
+      return { districtField: city?.districtField || 'NAME', stateField: null };
+    }
+    return { districtField: 'NAME', stateField: null };
+  }
+
+  function buildChoroData(layerId) {
+    const { districtField, stateField } = getDistrictField(layerId);
+    const color = layerColors[layerId] || DEFAULT_LAYER_COLOR;
+    const counts = {};
+    for (const p of enrichedPoints) {
+      if (p[layerId] != null) counts[p[layerId]] = (counts[p[layerId]] || 0) + 1;
+    }
+    // For label display, strip state prefix so it matches GeoJSON feature names
+    const plainCounts = {};
+    for (const [name, count] of Object.entries(counts)) {
+      const plain = name.includes(' – ') ? name.split(' – ').slice(1).join(' – ') : name;
+      plainCounts[plain] = (plainCounts[plain] || 0) + count;
+    }
+    return { counts, plainCounts, districtField, stateField, color };
+  }
+
+  function handleChoroLayerSelect(layerId) {
+    const isDeselect = layerId === activeChoroLayer;
+
+    if (activeChoroLayer) {
+      mapRef.current?.clearChoropleth(activeChoroLayer);
+      mapRef.current?.removeCountLabels(activeChoroLayer);
+    }
+
+    if (isDeselect) {
+      setActiveChoroLayer(null);
+      return;
+    }
+
+    setActiveChoroLayer(layerId);
+
+    const { counts, plainCounts, districtField, stateField, color } = buildChoroData(layerId);
+    const geojson = layerGeojson[layerId];
+    mapRef.current?.setChoropleth(layerId, counts, districtField, color, stateField);
+    if (geojson) mapRef.current?.addCountLabels(layerId, geojson, plainCounts, districtField);
+  }
+
+  // Keep choropleth and labels in sync when enrichedPoints updates
+  useEffect(() => {
+    if (!activeChoroLayer || enrichedPoints.length === 0) return;
+    const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer);
+    const geojson = layerGeojson[activeChoroLayer];
+    mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField);
+    if (geojson) {
+      mapRef.current?.removeCountLabels(activeChoroLayer);
+      mapRef.current?.addCountLabels(activeChoroLayer, geojson, plainCounts, districtField);
+    }
+  }, [enrichedPoints, activeChoroLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleUnlock(newTier) {
     setTier(newTier);
@@ -310,10 +380,13 @@ export default function Home() {
   }
 
   function removeLayer(layerId) {
+    if (layerId === activeChoroLayer) {
+      setActiveChoroLayer(null);
+    }
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
     setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
     setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
-    mapRef.current?.removeBoundaryLayer(layerId);
+    mapRef.current?.removeBoundaryLayer(layerId); // also cleans up count labels
   }
 
   async function fetchAndAddLayer(layerId, url, color) {
@@ -508,6 +581,9 @@ export default function Home() {
           onGeographySelect={handleGeographySelect}
           tier={tier}
           onUpgradeClick={() => setShowUpgradeModal(true)}
+          layerCounts={layerCounts}
+          activeChoroLayer={activeChoroLayer}
+          onChoroLayerSelect={handleChoroLayerSelect}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
@@ -542,21 +618,11 @@ export default function Home() {
               }}
               enrichedPoints={enrichedPoints}
               activeLayers={activeLayers}
-              layerGeojson={layerGeojson}
+              layerCounts={layerCounts}
               selectedDistrict={selectedDistrict}
               onDistrictSelect={handleDistrictSelect}
-              onLayerIsolate={(layerId) => {
-                if (layerId) {
-                  mapRef.current?.isolateLayer(layerId);
-                } else {
-                  mapRef.current?.showAllLayers();
-                }
-              }}
-              onChoropleth={(layerId, countMap, districtField, stateField) => {
-                if (!layerId) return; // showAllLayers already resets fill-opacity
-                const color = layerColors[layerId] || DEFAULT_LAYER_COLOR;
-                mapRef.current?.setChoropleth(layerId, countMap, districtField, color, stateField);
-              }}
+              activeChoroLayer={activeChoroLayer}
+              onChoroLayerSelect={handleChoroLayerSelect}
               onFilteredIndicesChange={(indices) => {
                 if (indices === null) {
                   mapRef.current?.clearPointFilter();

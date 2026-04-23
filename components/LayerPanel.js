@@ -41,6 +41,9 @@ export default function LayerPanel({
   onGeographySelect,
   tier = 'free',
   onUpgradeClick,
+  layerCounts = {},
+  activeChoroLayer,
+  onChoroLayerSelect,
 }) {
   const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
   const [selectedStates, setSelectedStates] = useState([]);
@@ -187,23 +190,38 @@ export default function LayerPanel({
     const isActive = activeLayers.includes(layerId);
     const isLoading = loadingLayer === layerId;
     const locked = isLayerLocked(layerId, tier);
+    const isChoro = activeChoroLayer === layerId;
+    const count = layerCounts[layerId];
+    const canAnalyze = hasData && isActive && !locked;
     return (
-      <label
-        style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1 }}
-        onClick={locked ? (e) => { e.preventDefault(); onUpgradeClick?.(); } : undefined}
-      >
+      <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1 }}>
         <input
           type="checkbox"
           checked={isActive}
           disabled={isLoading || locked}
-          onChange={locked ? undefined : (e) => onToggle(layerId, e.target.checked)}
+          onChange={locked
+            ? (e) => { e.preventDefault(); onUpgradeClick?.(); }
+            : (e) => onToggle(layerId, e.target.checked)}
         />
-        <span style={{ fontSize: 13 }}>
+        <span
+          style={{
+            fontSize: 13, flex: 1,
+            cursor: canAnalyze ? 'pointer' : 'default',
+            color: isChoro ? 'var(--mid-blue)' : 'inherit',
+            fontWeight: isChoro ? 600 : 400,
+          }}
+          onClick={() => { if (canAnalyze) onChoroLayerSelect?.(layerId); }}
+        >
           {locked && <span style={{ marginRight: 3 }}>🔒</span>}
           {label}
         </span>
+        {count !== undefined && count > 0 && (
+          <span style={{ ...styles.badge, background: isChoro ? 'var(--mid-blue)' : '#e8edf2', color: isChoro ? '#fff' : '#1c3557' }}>
+            {count.toLocaleString()}
+          </span>
+        )}
         {isLoading && !locked && <span style={styles.spinner}>↻</span>}
-      </label>
+      </div>
     );
   }
 
@@ -822,6 +840,11 @@ const styles = {
     color: '#fff',
   },
   spinner: { fontSize: 13, color: 'var(--mid-blue)', animation: 'spin 1s linear infinite' },
+  badge: {
+    display: 'inline-block', fontSize: 10, fontWeight: 700,
+    padding: '1px 5px', borderRadius: 8,
+    lineHeight: 1.5, flexShrink: 0,
+  },
   geoRequestBtn: {
     width: '100%',
     padding: '9px 12px',

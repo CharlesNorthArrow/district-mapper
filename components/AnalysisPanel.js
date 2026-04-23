@@ -9,9 +9,6 @@ import ExportControls from './ExportControls';
 import FilterBar, { applyFilters } from './FilterBar';
 import AnalysisGuide from './AnalysisGuide';
 import PolicyDrawer from './PolicyPulse/PolicyDrawer';
-import BillCard from './PolicyPulse/BillCard';
-import PolicyPDFDoc from './PolicyPulse/PolicyPDF';
-import { pdf } from '@react-pdf/renderer';
 
 const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
 
@@ -40,15 +37,21 @@ const PARTY_BG    = { D: '#dbeafe', R: '#fee2e2', I: '#ede9fe' };
 const PARTY_FG    = { D: '#1d4ed8', R: '#dc2626', I: '#7c3aed' };
 const PARTY_LABEL = { D: 'Dem', R: 'Rep', I: 'Ind' };
 
+const SCOPE_COLORS = {
+  national: { active: '#1c3557', inactive: '#e8edf2' },
+  state:    { active: '#467c9d', inactive: '#deeaf3' },
+  local:    { active: '#047857', inactive: '#d9f0e8' },
+  custom:   { active: '#6a4c93', inactive: '#ece8f5' },
+};
+
 function lookupRep(districtName, officials) {
   if (!officials || !districtName.includes(' – ')) return null;
   const parts = districtName.split(' – ');
   const abbr = parts[0];
-  const rawNum = parts.slice(1).join(' – '); // e.g. "Congressional District 1"
-
+  const rawNum = parts.slice(1).join(' – ');
   let distNum;
   if (/at.?large/i.test(rawNum)) {
-    distNum = 0; // at-large districts are keyed as 0 in the legislators JSON
+    distNum = 0;
   } else {
     const m = rawNum.match(/\d+/);
     distNum = m ? parseInt(m[0], 10) : null;
@@ -79,22 +82,16 @@ function renderParty(districtName, officials) {
     </span>
   );
 }
-const SCOPE_COLORS = {
-  national: { active: '#1c3557', inactive: '#e8edf2', activeText: '#fff', inactiveText: '#1c3557' },
-  state:    { active: '#467c9d', inactive: '#deeaf3', activeText: '#fff', inactiveText: '#2c5a75' },
-  local:    { active: '#047857', inactive: '#d9f0e8', activeText: '#fff', inactiveText: '#065f46' },
-  custom:   { active: '#6a4c93', inactive: '#ece8f5', activeText: '#fff', inactiveText: '#4c3068' },
-};
 
 export default function AnalysisPanel({
   uploadedData,
   enrichedPoints,
   activeLayers,
-  layerGeojson,
+  layerCounts = {},
   selectedDistrict,
   onDistrictSelect,
-  onLayerIsolate,
-  onChoropleth,
+  activeChoroLayer,
+  onChoroLayerSelect,
   onFilteredIndicesChange,
   tier = 'free',
   onUpgradeClick,
@@ -102,20 +99,13 @@ export default function AnalysisPanel({
   onSaveScan,
   onDeletePolicyScan,
 }) {
-  // 'overview' | null (falls back to first layer) | layerId
-  const [selectedLayer, setSelectedLayer] = useState('overview');
   const [open, setOpen] = useState(true);
   const [showGuide, setShowGuide] = useState(false);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const [activeFilters, setActiveFilters] = useState([]);
-  const [filterAdding, setFilterAdding] = useState(null); // null | 'data' | 'district'
-  const [officials, setOfficials] = useState(null); // null = not fetched yet
-  const [analysisText, setAnalysisText] = useState(null);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysisError, setAnalysisError] = useState(null);
-  const [policyDrawer, setPolicyDrawer] = useState(null); // { layerId, districtName, stateFips }
-  const [expandedScanId, setExpandedScanId] = useState(null);
-  const [savedPdfLoading, setSavedPdfLoading] = useState(false);
+  const [filterAdding, setFilterAdding] = useState(null);
+  const [officials, setOfficials] = useState(null);
+  const [policyDrawer, setPolicyDrawer] = useState(null);
   const [panelHeight, setPanelHeight] = useState(310);
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
@@ -124,7 +114,6 @@ export default function AnalysisPanel({
     e.preventDefault();
     const startY = e.clientY;
     const startHeight = panelHeight;
-
     function onMove(ev) {
       const delta = startY - ev.clientY;
       const next = Math.min(Math.max(startHeight + delta, 120), window.innerHeight - 80);
@@ -142,12 +131,11 @@ export default function AnalysisPanel({
 
   const filteredPoints = useMemo(() => applyFilters(enrichedPoints, activeFilters), [enrichedPoints, activeFilters]);
 
-  // Notify parent when filter changes so it can sync the map
   useEffect(() => {
     if (activeFilters.length === 0) {
-      onFilteredIndicesChange?.(null); // null = clear filter (show all)
+      onFilteredIndicesChange?.(null);
     } else {
-      onFilteredIndicesChange?.(filteredPoints.map(p => p._globalIndex));
+      onFilteredIndicesChange?.(filteredPoints.map((p) => p._globalIndex));
     }
   }, [filteredPoints, activeFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -168,17 +156,15 @@ export default function AnalysisPanel({
     [activeLayers]
   );
 
-  const isOverview = selectedLayer === 'overview';
-  const activeLayer = isOverview ? null : (selectedLayer || null);
-  const rows = activeLayer ? (layerSummary[activeLayer] || []) : [];
-  const unmatchedCount = activeLayer
-    ? filteredPoints.filter((p) => p[activeLayer] == null).length
+  const rows = activeChoroLayer ? (layerSummary[activeChoroLayer] || []) : [];
+  const unmatchedCount = activeChoroLayer
+    ? filteredPoints.filter((p) => p[activeChoroLayer] == null).length
     : 0;
 
   const checkedRowCount = useMemo(() => {
-    if (!activeLayer || checkedDistricts.size === 0) return 0;
-    return filteredPoints.filter((p) => checkedDistricts.has(p[activeLayer])).length;
-  }, [filteredPoints, activeLayer, checkedDistricts]);
+    if (!activeChoroLayer || checkedDistricts.size === 0) return 0;
+    return filteredPoints.filter((p) => checkedDistricts.has(p[activeChoroLayer])).length;
+  }, [filteredPoints, activeChoroLayer, checkedDistricts]);
 
   useMemo(() => {
     if (!selectAllRef.current || rows.length === 0) return;
@@ -188,60 +174,26 @@ export default function AnalysisPanel({
     selectAllRef.current.indeterminate = someChecked && !allChecked;
   }, [checkedDistricts, rows]);
 
-  // Fetch US House members when the congressional tab is first viewed
+  // Fetch US House members when viewing congressional breakdown
   useEffect(() => {
-    if (activeLayer !== 'congressional' || officials !== null) return;
+    if (activeChoroLayer !== 'congressional' || officials !== null) return;
     fetch('/api/officials')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => setOfficials(data || {}))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setOfficials(data || {}))
       .catch(() => setOfficials({}));
-  }, [activeLayer, officials]);
+  }, [activeChoroLayer, officials]);
 
-  // Clear plain language analysis when a new dataset is uploaded
+  // Reset checked districts when switching layers
   useEffect(() => {
-    setAnalysisText(null);
-    setAnalysisError(null);
-    setAnalysisLoading(false);
-  }, [enrichedPoints]);
-
-  // Keep choropleth in sync when enriched data updates while a layer tab is active
-  useEffect(() => {
-    if (!activeLayer || !onChoropleth) return;
-    const cfg = getLayerCfg(activeLayer);
-    const counts = Object.fromEntries((layerSummary[activeLayer] || []).map(r => [r.districtName, r.count]));
-    onChoropleth(activeLayer, counts, cfg.districtField, cfg.stateField);
-  }, [layerSummary, activeLayer]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleSavedPDF(scan) {
-    setSavedPdfLoading(scan.id);
-    try {
-      const blob = await pdf(
-        <PolicyPDFDoc bills={scan.bills} districtName={scan.districtName} mission={scan.mission} savedAt={scan.savedAt} />
-      ).toBlob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `policy-pulse-${scan.districtName.replace(/\s+/g, '-').toLowerCase()}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setSavedPdfLoading(false);
-    }
-  }
-
-  function handleTabClick(id) {
-    setSelectedLayer(id);
     setCheckedDistricts(new Set());
-    if (selectedDistrict) onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName);
-    if (id === 'overview') {
-      onLayerIsolate?.(null);
-      onChoropleth?.(null);
-    } else {
-      onLayerIsolate?.(id);
-      const cfg = getLayerCfg(id);
-      const counts = Object.fromEntries((layerSummary[id] || []).map(r => [r.districtName, r.count]));
-      onChoropleth?.(id, counts, cfg.districtField, cfg.stateField);
-    }
+  }, [activeChoroLayer]);
+
+  function getDisplayName(layerId) {
+    if (!layerId) return '';
+    if (LAYER_CONFIG[layerId]) return LAYER_CONFIG[layerId].displayName;
+    if (layerId.startsWith('council-')) return `Council Districts (${layerId.replace('council-', '')})`;
+    if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
+    return layerId;
   }
 
   function toggleCheck(districtName) {
@@ -264,50 +216,14 @@ export default function AnalysisPanel({
 
   function handleFilteredDownload() {
     const dateStr = new Date().toISOString().slice(0, 10);
-    const layerName = getDisplayName(activeLayer).replace(/\s+/g, '-').toLowerCase();
-    const csv = buildFilteredCSV(originalRows, enrichedPoints, activeLayer, checkedDistricts, activeLayers);
+    const layerName = getDisplayName(activeChoroLayer).replace(/\s+/g, '-').toLowerCase();
+    const csv = buildFilteredCSV(originalRows, enrichedPoints, activeChoroLayer, checkedDistricts, activeLayers);
     downloadCSV(csv, `filtered-${layerName}-${dateStr}.csv`);
   }
 
-  async function handleGenerateAnalysis() {
-    setAnalysisLoading(true);
-    setAnalysisError(null);
-    try {
-      const layers = activeLayers.map((layerId) => ({
-        displayName: getDisplayName(layerId),
-        totalMatched: (layerSummary[layerId] || []).reduce((s, r) => s + r.count, 0),
-        totalUnmatched: filteredPoints.filter((p) => p[layerId] == null).length,
-        topDistricts: (layerSummary[layerId] || []).slice(0, 8).map((r) => ({
-          name: r.districtName, count: r.count, pct: r.pct,
-        })),
-      }));
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          totalPoints: points.length,
-          headers,
-          sampleRows: originalRows.slice(0, 15),
-          layers,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || res.statusText);
-      setAnalysisText(data.text);
-    } catch (err) {
-      setAnalysisError(err.message);
-    } finally {
-      setAnalysisLoading(false);
-    }
-  }
-
-  function getDisplayName(layerId) {
-    if (!layerId) return '';
-    if (LAYER_CONFIG[layerId]) return LAYER_CONFIG[layerId].displayName;
-    if (layerId.startsWith('council-')) return `Council Districts (${layerId.replace('council-', '')})`;
-    if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
-    return layerId;
-  }
+  const headerTitle = activeChoroLayer
+    ? `${getDisplayName(activeChoroLayer)} — ${points.length.toLocaleString()} points`
+    : `Analysis — ${points.length.toLocaleString()} points`;
 
   return (
     <div style={{ ...panel, height: open ? panelHeight : 40 }}>
@@ -322,15 +238,23 @@ export default function AnalysisPanel({
             background: 'transparent',
           }}
         >
-          <div style={{
-            width: 40, height: 4, borderRadius: 2,
-            background: '#c5d0da',
-          }} />
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: '#c5d0da' }} />
         </div>
       )}
+
+      {/* Header */}
       <div style={panelHeader}>
-        <span style={panelTitle}>Analysis — {points.length.toLocaleString()} points</span>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {activeChoroLayer && (
+            <button
+              style={backBtn}
+              onClick={() => onChoroLayerSelect?.(activeChoroLayer)}
+              title="Back to all layers"
+            >
+              ← All layers
+            </button>
+          )}
+          <span style={panelTitle}>{headerTitle}</span>
           {selectedDistrict && (
             <span style={filterBadge}>
               {selectedDistrict.districtName}
@@ -340,18 +264,19 @@ export default function AnalysisPanel({
               >✕</button>
             </span>
           )}
-
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {/* Filter group */}
-          <div data-guide="filter-group" style={headerGroup}>
+          <div style={headerGroup}>
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style={{ color: '#7a8fa6', flexShrink: 0 }}>
               <path d="M1 2h14l-5 6.5V14l-4-2V8.5L1 2z"/>
             </svg>
-            <span style={headerGroupLabel}>Filter by:</span>
+            <span style={headerGroupLabel}>Filter:</span>
             <button
               style={{ ...headerGroupBtn, ...(filterAdding === 'data' ? headerGroupBtnActiveData : {}) }}
               onClick={() => setFilterAdding(filterAdding === 'data' ? null : 'data')}
             >
-              Program Data
+              Data
             </button>
             <span style={headerGroupDivider}>|</span>
             <button
@@ -363,8 +288,7 @@ export default function AnalysisPanel({
             </button>
           </div>
 
-          {/* Download group */}
-          <div data-guide="export-controls">
+          <div>
             <ExportControls
               originalRows={originalRows}
               enrichedPoints={enrichedPoints}
@@ -392,7 +316,7 @@ export default function AnalysisPanel({
 
       {open && (
         <div style={panelBody}>
-          {/* Filter bar — always shown when data is loaded */}
+          {/* Filter bar */}
           <FilterBar
             headers={headers}
             sampleRows={originalRows.slice(0, 50)}
@@ -405,363 +329,155 @@ export default function AnalysisPanel({
             onAddingChange={setFilterAdding}
           />
 
-          {activeLayers.length > 0 && (
-            <>
-              {/* Tab bar */}
-              <div data-guide="layer-tabs" style={layerTabs}>
-                {/* Overview tab */}
-                <button
-                  style={{
-                    ...tabBtn,
-                    background: isOverview ? '#1c3557' : '#edf2f7',
-                    color: isOverview ? '#fff' : '#1c3557',
-                  }}
-                  onClick={() => handleTabClick('overview')}
-                >
-                  Overview
-                </button>
-
-                {/* Plain Language tab — after Overview */}
-                <button
-                  style={{
-                    ...tabBtn,
-                    background: selectedLayer === 'plain-language' ? '#1c3557' : '#edf2f7',
-                    color: selectedLayer === 'plain-language' ? '#fff' : '#1c3557',
-                  }}
-                  onClick={() => handleTabClick('plain-language')}
-                >
-                  🤖 Plain Language
-                </button>
-
-                {/* Saved Policies tab */}
-                {savedPolicies.length > 0 && (
-                  <button
-                    style={{
-                      ...tabBtn,
-                      background: selectedLayer === 'saved-policies' ? '#1c3557' : '#edf2f7',
-                      color: selectedLayer === 'saved-policies' ? '#fff' : '#1c3557',
-                    }}
-                    onClick={() => handleTabClick('saved-policies')}
-                  >
-                    🏛️ Saved Policies {savedPolicies.length > 0 && `(${savedPolicies.length})`}
-                  </button>
-                )}
-
-                {/* Per-layer tabs */}
-                {sortedLayers.map((id) => {
-                  const scope = getScope(id);
-                  const colors = SCOPE_COLORS[scope];
-                  const isActive = activeLayer === id;
-                  return (
-                    <button
-                      key={id}
-                      style={{
-                        ...tabBtn,
-                        background: isActive ? colors.active : colors.inactive,
-                        color: isActive ? colors.activeText : colors.inactiveText,
-                      }}
-                      onClick={() => handleTabClick(id)}
-                    >
-                      {getDisplayName(id)}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* ── PLAIN LANGUAGE ── */}
-              {selectedLayer === 'plain-language' && tier === 'free' && (
-                <div style={{ ...plainLanguageWrap, justifyContent: 'center' }}>
-                  <div style={plainEmptyState}>
-                    <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
-                    <div style={plainEmptyTitle}>Plain Language Analysis</div>
-                    <p style={plainEmptyBody}>
-                      AI-powered analysis is available on Pro and Enterprise plans.
-                    </p>
-                    <button
-                      style={{ ...guideBtn, fontSize: 13, padding: '7px 18px' }}
-                      onClick={onUpgradeClick}
-                    >
-                      Upgrade to unlock
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {selectedLayer === 'plain-language' && tier !== 'free' && (
-                <div style={plainLanguageWrap}>
-                  {!analysisText && !analysisLoading && !analysisError && (
-                    <div style={plainEmptyState}>
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>📝</div>
-                      <div style={plainEmptyTitle}>Plain Language Analysis</div>
-                      <p style={plainEmptyBody}>
-                        Generate a short plain-English summary of the distribution using your uploaded data and active boundary layers.
-                      </p>
-                      <button
-                        style={{ ...guideBtn, fontSize: 13, padding: '7px 18px', opacity: activeLayers.length === 0 ? 0.4 : 1 }}
-                        disabled={activeLayers.length === 0}
-                        onClick={handleGenerateAnalysis}
-                      >
-                        Generate Analysis
-                      </button>
-                      {activeLayers.length === 0 && (
-                        <p style={{ fontSize: 11, color: '#7a8fa6', marginTop: 8 }}>Enable at least one boundary layer first.</p>
-                      )}
-                    </div>
-                  )}
-
-                  {analysisLoading && (
-                    <div style={plainEmptyState}>
-                      <div style={{ fontSize: 22, animation: 'spin 1s linear infinite', marginBottom: 8 }}>↻</div>
-                      <div style={{ fontSize: 13, color: '#7a8fa6' }}>Generating analysis…</div>
-                    </div>
-                  )}
-
-                  {analysisError && !analysisLoading && (
-                    <div style={plainEmptyState}>
-                      <p style={{ fontSize: 13, color: 'var(--red)', marginBottom: 12 }}>{analysisError}</p>
-                      <button style={{ ...guideBtn, fontSize: 12 }} onClick={handleGenerateAnalysis}>
-                        Try Again
-                      </button>
-                    </div>
-                  )}
-
-                  {analysisText && !analysisLoading && (
-                    <div style={plainResult}>
-                      {analysisText.split('\n\n').filter(Boolean).map((para, i) => (
-                        <p key={i} style={plainPara}>{para}</p>
-                      ))}
-                      <button style={plainRegenerateBtn} onClick={handleGenerateAnalysis}>
-                        ↻ Regenerate
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-
-              {/* ── SAVED POLICIES ── */}
-              {selectedLayer === 'saved-policies' && (
-                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
-                  {savedPolicies.map(scan => (
-                    <div key={scan.id} style={{ border: '1px solid #dde3ea', borderRadius: 6, marginBottom: 10, overflow: 'hidden' }}>
-                      {/* Scan header */}
-                      <div style={{ background: '#f7f9fc', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1c3557' }}>{scan.districtName}</div>
-                          <div style={{ fontSize: 11, color: '#888' }}>{scan.savedAt} · {scan.bills.length} bill{scan.bills.length !== 1 ? 's' : ''}</div>
-                          <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{scan.mission}</div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                          <button
-                            onClick={() => handleSavedPDF(scan)}
-                            disabled={savedPdfLoading === scan.id}
-                            style={{ background: 'none', border: '1px solid #a9dadc', borderRadius: 4, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: '#467c9d', cursor: 'pointer' }}
-                          >
-                            {savedPdfLoading === scan.id ? '…' : '⬇ PDF'}
-                          </button>
-                          <button
-                            onClick={() => setExpandedScanId(expandedScanId === scan.id ? null : scan.id)}
-                            style={{ background: 'none', border: '1px solid #dde3ea', borderRadius: 4, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: '#1c3557', cursor: 'pointer' }}
-                          >
-                            {expandedScanId === scan.id ? 'Hide' : 'View'}
-                          </button>
-                          <button
-                            onClick={() => onDeletePolicyScan?.(scan.id)}
-                            style={{ background: 'none', border: 'none', color: '#aaa', fontSize: 14, cursor: 'pointer', padding: '0 2px' }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                      {/* Expanded bills */}
-                      {expandedScanId === scan.id && (
-                        <div style={{ padding: '10px 12px', borderTop: '1px solid #eee' }}>
-                          {scan.bills.map(bill => <BillCard key={bill.id} bill={bill} />)}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── OVERVIEW ── */}
-              {isOverview && (
-                <div data-guide="overview-cards" style={overviewScroll}>
-                  {sortedLayers.map((layerId) => {
-                    const scope = getScope(layerId);
-                    const colors = SCOPE_COLORS[scope];
-                    const layerRows = layerSummary[layerId] || [];
-                    const matched = layerRows.reduce((s, r) => s + r.count, 0);
-                    const unmatched = points.length - matched;
-                    const topMax = layerRows[0]?.count || 1;
-                    return (
-                      <div key={layerId} style={{ ...overviewCard, borderTopColor: colors.active }}>
-                        <div style={overviewCardHead}>
-                          <span style={overviewLayerName}>{getDisplayName(layerId)}</span>
-                        </div>
-                        <div style={overviewStats}>
-                          <span>{layerRows.length} districts</span>
-                          <span style={overviewDot}>·</span>
-                          <span>{matched.toLocaleString()} pts matched</span>
-                          {unmatched > 0 && (
-                            <>
-                              <span style={overviewDot}>·</span>
-                              <span style={{ color: 'var(--red)' }}>{unmatched.toLocaleString()} unmatched</span>
-                            </>
-                          )}
-                        </div>
-                        <div style={overviewTopList}>
-                          {layerRows.slice(0, 3).map((r, i) => (
-                            <div key={r.districtName} style={overviewTopRow}>
-                              <span style={overviewRank}>#{i + 1}</span>
-                              <div style={overviewBarTrack}>
-                                <div style={{ ...overviewBar, width: `${(r.count / topMax) * 100}%`, background: colors.active }} />
-                              </div>
-                              <span style={overviewDistName}>{r.districtName}</span>
-                              <span style={overviewDistCount}>{r.count.toLocaleString()}</span>
-                              <span style={overviewDistPct}>{r.pct}%</span>
-                            </div>
-                          ))}
-                          {layerRows.length === 0 && (
-                            <span style={{ fontSize: 11, color: '#7a8fa6', fontStyle: 'italic' }}>No matches yet</span>
-                          )}
-                        </div>
-                        <button style={overviewViewBtn} onClick={() => handleTabClick(layerId)}>
-                          View details →
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* ── LAYER DETAIL ── */}
-              {!isOverview && activeLayer && selectedLayer !== 'plain-language' && (
-                <>
-                  {checkedDistricts.size > 0 && (
-                    <div style={downloadBar}>
-                      <span style={downloadBarLabel}>
-                        {checkedDistricts.size} {checkedDistricts.size === 1 ? 'district' : 'districts'} selected
-                        &nbsp;·&nbsp;
-                        {checkedRowCount.toLocaleString()} rows
-                      </span>
-                      <button style={downloadBarBtn} onClick={handleFilteredDownload}>Download CSV</button>
-                      <button style={downloadBarClear} onClick={() => setCheckedDistricts(new Set())}>Clear</button>
-                    </div>
-                  )}
-
-                  <div data-guide="district-table" style={tableWrap}>
-                    <table style={table}>
-                      <thead>
-                        <tr>
-                          <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
-                            <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
-                          </th>
-                          <th style={th}>District</th>
-                          {activeLayer === 'congressional' && (
-                            <th style={th}>Representative</th>
-                          )}
-                          {activeLayer === 'congressional' && (
-                            <th style={{ ...th, textAlign: 'center' }}>Party</th>
-                          )}
-                          <th style={{ ...th, textAlign: 'right' }}>Points</th>
-                          <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((row, i) => {
-                          const isMapFiltered =
-                            selectedDistrict?.layerId === activeLayer &&
-                            selectedDistrict?.districtName === row.districtName;
-                          const isChecked = checkedDistricts.has(row.districtName);
-                          return (
-                            <tr
-                              key={i}
-                              style={{
-                                ...(i % 2 === 0 ? {} : { background: '#f7fafc' }),
-                                ...(isMapFiltered ? mapFilteredRow : {}),
-                                ...(isChecked ? checkedRow : {}),
-                              }}
-                            >
-                              <td style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }} onClick={(e) => e.stopPropagation()}>
-                                <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
-                              </td>
-                              <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeLayer, row.districtName)}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  {row.districtName}
-                                  {isScannableLayer(activeLayer) && !isPolicyPulseLocked(tier) && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setPolicyDrawer({ layerId: activeLayer, districtName: row.districtName, stateFips: null }); }}
-                                      style={{
-                                        background: 'none',
-                                        border: '1px solid #a9dadc',
-                                        borderRadius: 4,
-                                        padding: '2px 8px',
-                                        fontSize: 11,
-                                        color: '#1c3557',
-                                        cursor: 'pointer',
-                                        fontWeight: 600,
-                                        whiteSpace: 'nowrap',
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      🔍 Scan Policy
-                                    </button>
-                                  )}
-                                  {isScannableLayer(activeLayer) && isPolicyPulseLocked(tier) && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); onUpgradeClick?.(); }}
-                                      style={{
-                                        background: 'none',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: 4,
-                                        padding: '2px 8px',
-                                        fontSize: 11,
-                                        color: '#aaa',
-                                        cursor: 'pointer',
-                                        fontWeight: 600,
-                                        whiteSpace: 'nowrap',
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      🔒 Policy
-                                    </button>
-                                  )}
-                                </span>
-                              </td>
-                              {activeLayer === 'congressional' && (
-                                <td style={td}>{renderRep(row.districtName, officials)}</td>
-                              )}
-                              {activeLayer === 'congressional' && (
-                                <td style={{ ...td, textAlign: 'center' }}>{renderParty(row.districtName, officials)}</td>
-                              )}
-                              <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
-                              <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
-                            </tr>
-                          );
-                        })}
-                        {unmatchedCount > 0 && (
-                          <tr style={{ background: '#fff5f5' }}>
-                            <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
-                            <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
-                            {activeLayer === 'congressional' && <td style={td} />}
-                            {activeLayer === 'congressional' && <td style={td} />}
-                            <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
-                            <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
-                              {((unmatchedCount / points.length) * 100).toFixed(1)}%
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </>
+          {activeLayers.length === 0 && (
+            <div style={emptyState}>
+              <p style={emptyText}>Enable a boundary layer in the sidebar to analyze your data.</p>
+            </div>
           )}
 
+          {/* State 1: no layer selected — overview table */}
+          {activeLayers.length > 0 && !activeChoroLayer && (
+            <div style={tableWrap}>
+              <table style={table}>
+                <thead>
+                  <tr>
+                    <th style={th}>Layer</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Matched</th>
+                    <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
+                    <th style={{ ...th, width: 80 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedLayers.map((layerId, i) => {
+                    const scope = getScope(layerId);
+                    const colors = SCOPE_COLORS[scope];
+                    const matched = layerCounts[layerId] ?? 0;
+                    const pct = points.length > 0 ? ((matched / points.length) * 100).toFixed(1) : '0.0';
+                    return (
+                      <tr
+                        key={layerId}
+                        style={{ ...(i % 2 === 0 ? {} : { background: '#f7fafc' }), cursor: 'pointer' }}
+                        onClick={() => onChoroLayerSelect?.(layerId)}
+                      >
+                        <td style={td}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: colors.active, flexShrink: 0, display: 'inline-block' }} />
+                            {getDisplayName(layerId)}
+                          </span>
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{matched.toLocaleString()}</td>
+                        <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{pct}%</td>
+                        <td style={{ ...td, textAlign: 'right' }}>
+                          <span style={analyzeBtn}>Analyze →</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p style={overviewHint}>Click a layer to view district breakdown and choropleth map.</p>
+            </div>
+          )}
+
+          {/* State 2: layer selected — district detail table */}
+          {activeChoroLayer && (
+            <>
+              {checkedDistricts.size > 0 && (
+                <div style={downloadBar}>
+                  <span style={downloadBarLabel}>
+                    {checkedDistricts.size} {checkedDistricts.size === 1 ? 'district' : 'districts'} selected
+                    &nbsp;·&nbsp;
+                    {checkedRowCount.toLocaleString()} rows
+                  </span>
+                  <button style={downloadBarBtn} onClick={handleFilteredDownload}>Download CSV</button>
+                  <button style={downloadBarClear} onClick={() => setCheckedDistricts(new Set())}>Clear</button>
+                </div>
+              )}
+
+              <div style={tableWrap}>
+                <table style={table}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
+                        <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
+                      </th>
+                      <th style={th}>District</th>
+                      {activeChoroLayer === 'congressional' && <th style={th}>Representative</th>}
+                      {activeChoroLayer === 'congressional' && <th style={{ ...th, textAlign: 'center' }}>Party</th>}
+                      <th style={{ ...th, textAlign: 'right' }}>Points</th>
+                      <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => {
+                      const isMapFiltered =
+                        selectedDistrict?.layerId === activeChoroLayer &&
+                        selectedDistrict?.districtName === row.districtName;
+                      const isChecked = checkedDistricts.has(row.districtName);
+                      return (
+                        <tr
+                          key={i}
+                          style={{
+                            ...(i % 2 === 0 ? {} : { background: '#f7fafc' }),
+                            ...(isMapFiltered ? mapFilteredRow : {}),
+                            ...(isChecked ? checkedRow : {}),
+                          }}
+                        >
+                          <td style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }} onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
+                          </td>
+                          <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {row.districtName}
+                              {isScannableLayer(activeChoroLayer) && !isPolicyPulseLocked(tier) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setPolicyDrawer({ layerId: activeChoroLayer, districtName: row.districtName, stateFips: null }); }}
+                                  style={scanBtn}
+                                >
+                                  🔍 Scan Policy
+                                </button>
+                              )}
+                              {isScannableLayer(activeChoroLayer) && isPolicyPulseLocked(tier) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); onUpgradeClick?.(); }}
+                                  style={scanBtnLocked}
+                                >
+                                  🔒 Policy
+                                </button>
+                              )}
+                            </span>
+                          </td>
+                          {activeChoroLayer === 'congressional' && (
+                            <td style={td}>{renderRep(row.districtName, officials)}</td>
+                          )}
+                          {activeChoroLayer === 'congressional' && (
+                            <td style={{ ...td, textAlign: 'center' }}>{renderParty(row.districtName, officials)}</td>
+                          )}
+                          <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
+                        </tr>
+                      );
+                    })}
+                    {unmatchedCount > 0 && (
+                      <tr style={{ background: '#fff5f5' }}>
+                        <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
+                        <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
+                        {activeChoroLayer === 'congressional' && <td style={td} />}
+                        {activeChoroLayer === 'congressional' && <td style={td} />}
+                        <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
+                        <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
+                          {((unmatchedCount / points.length) * 100).toFixed(1)}%
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
+
       <AnalysisGuide open={showGuide} onClose={() => setShowGuide(false)} />
       {policyDrawer && (
         <PolicyDrawer
@@ -787,7 +503,11 @@ const panelHeader = {
   padding: '8px 16px', borderBottom: '1px solid #dde3ea', flexShrink: 0,
 };
 const panelTitle = { fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--dark-navy)' };
-const hintStyle = { fontSize: 12, color: '#7a8fa6' };
+const backBtn = {
+  background: 'none', border: '1px solid #c5d0da', borderRadius: 4,
+  padding: '3px 8px', fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
+  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+};
 const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
 const guideBtn = {
   background: '#f5a800', border: 'none', borderRadius: 20,
@@ -812,11 +532,6 @@ const headerGroupBtn = {
 const headerGroupBtnActiveData = { background: '#dbeafe', color: '#1d4ed8' };
 const headerGroupBtnActiveDistrict = { background: '#d1fae5', color: '#047857' };
 const panelBody = { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' };
-const layerTabs = { display: 'flex', gap: 4, padding: '8px 12px', flexShrink: 0, flexWrap: 'wrap' };
-const tabBtn = {
-  padding: '4px 10px', border: 'none', borderRadius: 3,
-  fontSize: 11, fontWeight: 600, cursor: 'pointer',
-};
 const downloadBar = {
   display: 'flex', alignItems: 'center', gap: 10, padding: '5px 12px',
   background: '#fefce8', borderBottom: '1px solid #fde68a', flexShrink: 0,
@@ -848,78 +563,25 @@ const clearFilterBtn = {
   background: 'none', border: 'none', cursor: 'pointer',
   fontSize: 10, color: 'var(--mid-blue)', padding: 0, lineHeight: 1,
 };
-
-// Overview styles
-const overviewScroll = {
-  flex: 1, display: 'flex', flexDirection: 'row', gap: 10,
-  padding: '8px 12px', overflowX: 'auto', overflowY: 'hidden', alignItems: 'flex-start',
-};
-const overviewCard = {
-  minWidth: 200, maxWidth: 240, flex: '0 0 auto',
-  border: '1px solid #dde3ea', borderTop: '3px solid #ccc',
-  borderRadius: 4, padding: '10px 12px',
-  display: 'flex', flexDirection: 'column', gap: 6,
-  background: '#fff',
-};
-const overviewCardHead = { display: 'flex', flexDirection: 'column', gap: 3 };
-const overviewScopePill = {
-  display: 'inline-block', alignSelf: 'flex-start',
-  fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-  padding: '2px 6px', borderRadius: 10,
-};
-const overviewLayerName = { fontSize: 12, fontWeight: 700, color: '#1c3557', lineHeight: 1.3 };
-const overviewStats = {
-  display: 'flex', flexWrap: 'wrap', gap: 3,
-  fontSize: 11, color: '#7a8fa6',
-};
-const overviewDot = { color: '#c5d0da' };
-const overviewTopList = { display: 'flex', flexDirection: 'column', gap: 4 };
-const overviewTopRow = {
-  display: 'grid',
-  gridTemplateColumns: '14px 40px 1fr auto auto',
-  alignItems: 'center', gap: 4,
-};
-const overviewRank = { fontSize: 10, color: '#a0aec0', textAlign: 'right' };
-const overviewBarTrack = { height: 4, background: '#edf2f7', borderRadius: 2, overflow: 'hidden' };
-const overviewBar = { height: '100%', borderRadius: 2, transition: 'width 0.3s ease' };
-const overviewDistName = { fontSize: 11, color: '#1c3557', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-const overviewDistCount = { fontSize: 11, fontWeight: 600, color: '#1c3557', textAlign: 'right', whiteSpace: 'nowrap' };
-const overviewDistPct = { fontSize: 10, color: '#7a8fa6', textAlign: 'right', whiteSpace: 'nowrap', minWidth: 32 };
-const overviewViewBtn = {
-  marginTop: 2, padding: '3px 0',
-  background: 'none', border: 'none',
+const analyzeBtn = {
   fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
-  cursor: 'pointer', textAlign: 'right', alignSelf: 'flex-end',
+  padding: '2px 6px', borderRadius: 3,
+  background: '#edf2f7',
 };
-
-// Plain Language tab styles
-const plainLanguageWrap = {
-  flex: 1, overflowY: 'auto', padding: '16px 20px',
+const overviewHint = {
+  fontSize: 11, color: '#7a8fa6', padding: '8px 8px 12px', fontStyle: 'italic',
 };
-const plainEmptyState = {
-  display: 'flex', flexDirection: 'column', alignItems: 'center',
-  justifyContent: 'center', textAlign: 'center',
-  padding: '32px 24px', maxWidth: 400, margin: '0 auto',
+const emptyState = {
+  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
 };
-const plainEmptyTitle = {
-  fontFamily: 'Poppins, sans-serif', fontWeight: 700,
-  fontSize: 14, color: '#1c3557', marginBottom: 8,
+const emptyText = { fontSize: 13, color: '#7a8fa6', textAlign: 'center' };
+const scanBtn = {
+  background: 'none', border: '1px solid #a9dadc', borderRadius: 4,
+  padding: '2px 8px', fontSize: 11, color: '#1c3557',
+  cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
 };
-const plainEmptyBody = {
-  fontSize: 13, color: '#7a8fa6', lineHeight: 1.5,
-  marginBottom: 16,
-};
-const plainResult = {
-  maxWidth: 680,
-};
-const plainPara = {
-  fontSize: 14, color: '#2d3748', lineHeight: 1.7,
-  marginBottom: 14, fontFamily: "'Open Sans', sans-serif",
-};
-const plainRegenerateBtn = {
-  marginTop: 8,
-  background: 'none', border: 'none',
-  fontSize: 12, color: '#7a8fa6',
-  cursor: 'pointer', padding: 0,
-  textDecoration: 'underline',
+const scanBtnLocked = {
+  background: 'none', border: '1px solid #e0e0e0', borderRadius: 4,
+  padding: '2px 8px', fontSize: 11, color: '#aaa',
+  cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
 };

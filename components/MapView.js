@@ -1,5 +1,6 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
+import * as turf from '@turf/turf';
 import { ABBR_TO_FIPS } from '../lib/stateFips';
 
 function buildPopupHTML(properties) {
@@ -99,6 +100,11 @@ const MapView = forwardRef(function MapView(_, ref) {
     removeBoundaryLayer(id) {
       const map = mapRef.current;
       if (!map) return;
+      // Clean up count labels before removing source
+      const cntLbl = `${id}-cnt-lbl`;
+      const cntSrc = `${id}-cnt-src`;
+      if (map.getLayer(cntLbl)) map.removeLayer(cntLbl);
+      if (map.getSource(cntSrc)) map.removeSource(cntSrc);
       const hFillId = `lookup-${id}-fill`;
       const hLineId = `lookup-${id}-line`;
       if (map.getLayer(hFillId)) map.removeLayer(hFillId);
@@ -350,6 +356,62 @@ const MapView = forwardRef(function MapView(_, ref) {
       if (!map) return;
       if (map.getLayer('search-pin')) map.removeLayer('search-pin');
       if (map.getSource('search-pin')) map.removeSource('search-pin');
+    },
+
+    addCountLabels(layerId, geojson, countsMap, districtField) {
+      const map = mapRef.current;
+      if (!map || !geojson?.features?.length) return;
+      const srcId = `${layerId}-cnt-src`;
+      const lyrId = `${layerId}-cnt-lbl`;
+      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+      if (map.getSource(srcId)) map.removeSource(srcId);
+
+      const features = [];
+      for (const f of geojson.features) {
+        const name = districtField
+          ? String(f.properties[districtField] ?? '')
+          : String(f.properties.NAME ?? f.properties.name ?? '');
+        const count = countsMap[name] ?? 0;
+        if (count === 0) continue;
+        try {
+          const c = turf.centroid(f);
+          features.push({
+            type: 'Feature',
+            geometry: c.geometry,
+            properties: { label: count.toLocaleString() },
+          });
+        } catch { /* skip malformed geometries */ }
+      }
+
+      // Insert labels above boundary fill but below points
+      const beforeLayer = map.getLayer('uploaded-points') ? 'uploaded-points' : undefined;
+      map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+      map.addLayer({
+        id: lyrId,
+        type: 'symbol',
+        source: srcId,
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 11,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-allow-overlap': false,
+          'text-ignore-placement': false,
+        },
+        paint: {
+          'text-color': '#1c3557',
+          'text-halo-color': 'rgba(255,255,255,0.92)',
+          'text-halo-width': 2,
+        },
+      }, beforeLayer);
+    },
+
+    removeCountLabels(layerId) {
+      const map = mapRef.current;
+      if (!map) return;
+      const lyrId = `${layerId}-cnt-lbl`;
+      const srcId = `${layerId}-cnt-src`;
+      if (map.getLayer(lyrId)) map.removeLayer(lyrId);
+      if (map.getSource(srcId)) map.removeSource(srcId);
     },
 
     addSearchPin(lng, lat) {
