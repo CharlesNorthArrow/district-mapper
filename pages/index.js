@@ -11,10 +11,9 @@ import OverflowBanner from '../components/OverflowBanner';
 import UpgradeModal from '../components/UpgradeModal';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
-import { suggestGeographies, STATE_BBOX } from '../lib/geoSuggest';
+import { suggestGeographies, STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
 
 // Return all state names whose bounding box contains at least one of the given points.
-// Used to auto-select states in the sidebar after upload.
 function detectStatesFromPoints(points) {
   const detected = [];
   for (const [stateName, bbox] of Object.entries(STATE_BBOX)) {
@@ -24,6 +23,21 @@ function detectStatesFromPoints(points) {
       (p) => p.lng >= minLng && p.lng <= maxLng && p.lat >= minLat && p.lat <= maxLat
     );
     if (hit) detected.push(stateName);
+  }
+  return detected;
+}
+
+// Return city slugs (matching CITY_COUNCIL_REGISTRY keys) whose bounding box contains
+// at least one of the given points. Used to auto-select cities in the Local section.
+function detectCitiesFromPoints(points) {
+  const detected = [];
+  for (const [slug, bbox] of Object.entries(CITY_BBOX)) {
+    if (!bbox) continue;
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+    const hit = points.some(
+      (p) => p.lng >= minLng && p.lng <= maxLng && p.lat >= minLat && p.lat <= maxLat
+    );
+    if (hit) detected.push(slug);
   }
   return detected;
 }
@@ -528,11 +542,12 @@ export default function Home() {
 
     setShowUploadModal(false);
 
-    // Auto-select states in the sidebar based on where the uploaded points land
+    // Auto-select states and cities in the sidebar based on where the uploaded points land
     if (!isAdd && points.length > 0) {
       const detectedStates = detectStatesFromPoints(points);
-      if (detectedStates.length > 0) {
-        setGeoSuggestions({ states: detectedStates, cities: [] });
+      const detectedCities = detectCitiesFromPoints(points);
+      if (detectedStates.length > 0 || detectedCities.length > 0) {
+        setGeoSuggestions({ states: detectedStates, cities: detectedCities });
       }
     }
 
