@@ -342,9 +342,10 @@ export default function AnalysisPanel({
                 <thead>
                   <tr>
                     <th style={th}>Layer</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Districts</th>
+                    <th style={th}>Top District</th>
                     <th style={{ ...th, textAlign: 'right' }}>Matched</th>
                     <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
-                    <th style={{ ...th, width: 80 }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -353,6 +354,9 @@ export default function AnalysisPanel({
                     const colors = SCOPE_COLORS[scope];
                     const matched = layerCounts[layerId] ?? 0;
                     const pct = points.length > 0 ? ((matched / points.length) * 100).toFixed(1) : '0.0';
+                    const summary = layerSummary[layerId] || [];
+                    const districtCount = summary.length;
+                    const topDistrict = summary[0];
                     return (
                       <tr
                         key={layerId}
@@ -360,16 +364,25 @@ export default function AnalysisPanel({
                         onClick={() => onChoroLayerSelect?.(layerId)}
                       >
                         <td style={td}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <span style={{ width: 8, height: 8, borderRadius: 2, background: colors.active, flexShrink: 0, display: 'inline-block' }} />
                             {getDisplayName(layerId)}
+                            <span style={analyzeBtn}>See Breakdown →</span>
                           </span>
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>
+                          {districtCount > 0 ? districtCount.toLocaleString() : '—'}
+                        </td>
+                        <td style={{ ...td, maxWidth: 160, overflow: 'hidden' }}>
+                          {topDistrict ? (
+                            <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                              <span style={{ fontWeight: 600, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis' }}>{topDistrict.districtName}</span>
+                              <span style={{ color: '#7a8fa6', fontSize: 11, flexShrink: 0 }}>({topDistrict.count.toLocaleString()})</span>
+                            </span>
+                          ) : <span style={{ color: '#c5d0da' }}>—</span>}
                         </td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{matched.toLocaleString()}</td>
                         <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{pct}%</td>
-                        <td style={{ ...td, textAlign: 'right' }}>
-                          <span style={analyzeBtn}>See Breakdown →</span>
-                        </td>
                       </tr>
                     );
                   })}
@@ -406,7 +419,6 @@ export default function AnalysisPanel({
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, textAlign: 'center' }}>Party</th>}
                       <th style={{ ...th, textAlign: 'right' }}>Points</th>
                       <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
-                      <th style={{ ...th, width: 70 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -428,7 +440,7 @@ export default function AnalysisPanel({
                             <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
                           </td>
                           <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               {row.districtName}
                               {isScannableLayer(activeChoroLayer) && !isPolicyPulseLocked(tier) && (
                                 <button
@@ -446,6 +458,12 @@ export default function AnalysisPanel({
                                   🔒 Policy
                                 </button>
                               )}
+                              <button
+                                style={zoomInBtn}
+                                onClick={(e) => { e.stopPropagation(); onDistrictSelect(activeChoroLayer, row.districtName); }}
+                              >
+                                Zoom In
+                              </button>
                             </span>
                           </td>
                           {activeChoroLayer === 'congressional' && (
@@ -456,14 +474,6 @@ export default function AnalysisPanel({
                           )}
                           <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
-                          <td style={{ ...td, textAlign: 'right', paddingRight: 12 }}>
-                            <button
-                              style={zoomInBtn}
-                              onClick={(e) => { e.stopPropagation(); onDistrictSelect(activeChoroLayer, row.districtName); }}
-                            >
-                              Zoom In
-                            </button>
-                          </td>
                         </tr>
                       );
                     })}
@@ -477,7 +487,6 @@ export default function AnalysisPanel({
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
                           {((unmatchedCount / points.length) * 100).toFixed(1)}%
                         </td>
-                        <td style={td} />
                       </tr>
                     )}
                   </tbody>
