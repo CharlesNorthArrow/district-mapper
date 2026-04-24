@@ -1,5 +1,6 @@
 import Head from 'next/head';
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useUser, SignInButton, UserButton } from '@clerk/nextjs';
 import MapView from '../components/MapView';
 import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
@@ -92,13 +93,16 @@ const tourBtnStyle = {
 };
 
 export default function Home() {
+  const { isLoaded: clerkLoaded, isSignedIn } = useUser();
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
   const hiddenBatchesRef = useRef(new Set());
   const activeLayersRef = useRef([]);
+  const authProfileRef = useRef(null);
   const tierRef = useRef(getTier());
   const [activeLayers, setActiveLayers] = useState([]);
+  const [authProfile, setAuthProfile] = useState(null);
   const [layerColors, setLayerColors] = useState({});
   const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
   const [hiddenBatches, setHiddenBatches] = useState(new Set());
@@ -215,6 +219,39 @@ export default function Home() {
 
   useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
   useEffect(() => { tierRef.current = tier; }, [tier]);
+
+  // Fetch auth profile on mount; sync tier and auto-reload saved dataset if logged in
+  useEffect(() => {
+    async function loadAuthProfile() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) return;
+        const data = await res.json();
+        setAuthProfile(data);
+        authProfileRef.current = data;
+        if (data.loggedIn && data.tier) {
+          setTierState(data.tier);
+          tierRef.current = data.tier;
+        }
+        if (data.loggedIn) autoReloadDataset();
+      } catch {}
+    }
+    loadAuthProfile();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function autoReloadDataset() {
+    try {
+      const res = await fetch('/api/auth/load-dataset');
+      if (!res.ok) return;
+      const { dataset } = await res.json();
+      if (!dataset?.blob_url) return;
+      const blobRes = await fetch(dataset.blob_url);
+      if (!blobRes.ok) return;
+      const { points, originalRows, headers, title } = await blobRes.json();
+      if (!points?.length) return;
+      handleUploadComplete(points, originalRows, headers, null, title || dataset.filename || '', 0);
+    } catch {}
+  }
 
   useEffect(() => {
     if (dataBatches.length === 0) return;
@@ -542,6 +579,15 @@ export default function Home() {
 
     setShowUploadModal(false);
 
+    // Persist dataset for logged-in users (fire-and-forget)
+    if (!isAdd && authProfileRef.current?.loggedIn) {
+      fetch('/api/auth/save-dataset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points, originalRows, headers, title }),
+      }).catch(() => {});
+    }
+
     // Auto-select states and cities in the sidebar based on where the uploaded points land
     if (!isAdd && points.length > 0) {
       const detectedStates = detectStatesFromPoints(points);
@@ -630,6 +676,27 @@ export default function Home() {
         <div style={{ flex: 1, position: 'relative' }}>
           <MapView ref={mapRef} />
           {processingStatus && <ProcessingBar status={processingStatus} />}
+          {clerkLoaded && (
+            <div style={{
+              position: 'absolute', top: 12, right: 12, zIndex: 10,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              {isSignedIn ? (
+                <UserButton afterSignOutUrl="/" />
+              ) : (
+                <SignInButton mode="modal">
+                  <button style={{
+                    background: '#1c3557', color: '#fff', border: 'none',
+                    borderRadius: 6, padding: '6px 14px', fontSize: 12,
+                    fontWeight: 600, fontFamily: "'Open Sans', sans-serif",
+                    cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                  }}>
+                    Sign in
+                  </button>
+                </SignInButton>
+              )}
+            </div>
+          )}
           {showOverflowBanner && (
             <OverflowBanner
               overflowCount={overflowCount}
