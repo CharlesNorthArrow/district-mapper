@@ -17,15 +17,16 @@ const ENTERPRISE_FEATURES = [
   'Dedicated North Arrow support',
 ];
 
-export default function UpgradeModal({ onClose, onUnlock }) {
+export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
   const [selectedPlan, setSelectedPlan] = useState(null); // null | 'pro' | 'enterprise'
   const [form, setForm] = useState({ name: '', org: '', title: '', email: '', useCase: '' });
   const [status, setStatus] = useState('idle'); // idle | submitting | success | error
   const [errorMsg, setErrorMsg] = useState('');
 
   const [unlockInput, setUnlockInput] = useState('');
-  const [unlockError, setUnlockError] = useState(false);
+  const [unlockError, setUnlockError] = useState('');
   const [unlockSubmitting, setUnlockSubmitting] = useState(false);
+  const [unlockSuccess, setUnlockSuccess] = useState(false);
 
   function setField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -58,23 +59,41 @@ export default function UpgradeModal({ onClose, onUnlock }) {
 
   async function handleUnlockSubmit(e) {
     e.preventDefault();
-    setUnlockError(false);
+    setUnlockError('');
     setUnlockSubmitting(true);
     try {
-      const res = await fetch('/api/unlock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: unlockInput }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        onUnlock?.('enterprise');
-        onClose();
+      if (authProfile?.loggedIn) {
+        // Logged-in users: redeem a multi-use invite code
+        const res = await fetch('/api/auth/redeem-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: unlockInput }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setUnlockSuccess(true);
+          onUnlock?.(data.tier);
+          setTimeout(onClose, 1200);
+        } else {
+          setUnlockError(data.error || 'Invalid code.');
+        }
       } else {
-        setUnlockError(true);
+        // Anonymous users: legacy password unlock
+        const res = await fetch('/api/unlock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: unlockInput }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          onUnlock?.('enterprise');
+          onClose();
+        } else {
+          setUnlockError('Incorrect code.');
+        }
       }
     } catch {
-      setUnlockError(true);
+      setUnlockError('Something went wrong — please try again.');
     } finally {
       setUnlockSubmitting(false);
     }
@@ -185,17 +204,18 @@ export default function UpgradeModal({ onClose, onUnlock }) {
 
               <form onSubmit={handleUnlockSubmit} style={unlockRow}>
                 <input
-                  style={{ ...input, flex: 1, fontSize: 12 }}
-                  type="password"
-                  placeholder="Have an access code?"
+                  style={{ ...input, flex: 1, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}
+                  type="text"
+                  placeholder={authProfile?.loggedIn ? 'Have an invite code?' : 'Have an access code?'}
                   value={unlockInput}
-                  onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(false); }}
+                  onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(''); setUnlockSuccess(false); }}
                 />
                 <button type="submit" style={unlockBtn} disabled={!unlockInput.trim() || unlockSubmitting}>
-                  {unlockSubmitting ? '…' : 'Unlock'}
+                  {unlockSubmitting ? '…' : 'Redeem'}
                 </button>
               </form>
-              {unlockError && <p style={errorStyle}>Incorrect code.</p>}
+              {unlockSuccess && <p style={{ fontSize: 12, color: '#16a34a', margin: 0 }}>Code applied! Your plan has been upgraded.</p>}
+              {unlockError && <p style={errorStyle}>{unlockError}</p>}
             </>
           )}
         </div>

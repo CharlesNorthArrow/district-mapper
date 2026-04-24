@@ -763,6 +763,7 @@ export default function Home() {
         <UpgradeModal
           onClose={() => setShowUpgradeModal(false)}
           onUnlock={handleUnlock}
+          authProfile={authProfile}
         />
       )}
 
