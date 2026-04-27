@@ -9,7 +9,7 @@ export default function SignInPage() {
       justifyContent: 'center',
       background: '#f7f9fc',
     }}>
-      <SignIn />
+      <SignIn fallbackRedirectUrl="/onboarding-check" signInFallbackRedirectUrl="/onboarding-check" />
     </div>
   );
 }
