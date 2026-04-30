@@ -6,7 +6,6 @@ import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { isPolicyPulseLocked } from '../lib/tierConfig';
 import { isScannableLayer } from '../lib/policyPulse';
 import FilterBar, { applyFilters } from './FilterBar';
-import AnalysisGuide from './AnalysisGuide';
 import PolicyDrawer from './PolicyPulse/PolicyDrawer';
 
 const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
@@ -100,7 +99,6 @@ export default function AnalysisPanel({
   onDeletePolicyScan,
 }) {
   const [open, setOpen] = useState(true);
-  const [showGuide, setShowGuide] = useState(false);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterAdding, setFilterAdding] = useState(null);
@@ -287,12 +285,6 @@ export default function AnalysisPanel({
               District
             </button>
           </div>
-
-          {open && (
-            <button style={guideBtn} onClick={() => setShowGuide(true)}>
-              What am I looking at?
-            </button>
-          )}
 
           <button style={toggleBtn} onClick={() => setOpen((o) => !o)}>
             {open ? '▼' : '▲'}
@@ -526,7 +518,6 @@ export default function AnalysisPanel({
         </div>
       )}
 
-      <AnalysisGuide open={showGuide} onClose={() => setShowGuide(false)} />
       {policyDrawer && (
         <PolicyDrawer
           layerId={policyDrawer.layerId}
@@ -557,12 +548,6 @@ const backBtn = {
   cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
 };
 const toggleBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#7a8fa6' };
-const guideBtn = {
-  background: '#f5a800', border: 'none', borderRadius: 20,
-  padding: '4px 12px', fontSize: 11, fontWeight: 700, color: '#fff',
-  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-  boxShadow: '0 2px 6px rgba(245,168,0,0.4)',
-};
 const headerGroup = {
   display: 'flex', alignItems: 'center', gap: 4,
   background: '#f8fafc', border: '1px solid #dde3ea', borderRadius: 5,

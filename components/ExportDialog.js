@@ -87,6 +87,7 @@ export default function ExportDialog({
   dataBatches,
   enrichedPoints,
   availableLayers,
+  activeLayers,
   tier,
   onUpgradeClick,
   onClose,
@@ -97,7 +98,9 @@ export default function ExportDialog({
   const [stepIdx, setStepIdx] = useState(0);
   const [format, setFormat] = useState('csv');
   const [selectedBatches, setSelectedBatches] = useState(() => new Set(dataBatches.map((b) => b.id)));
-  const [selectedLayers, setSelectedLayers] = useState(() => new Set(availableLayers));
+  // Default: active (mapped) layers checked, other matched layers unchecked
+  const activeSet = new Set(activeLayers);
+  const [selectedLayers, setSelectedLayers] = useState(() => new Set(availableLayers.filter((l) => activeSet.has(l))));
   const [pdfLoading, setPdfLoading] = useState(false);
 
   const currentStep = steps[stepIdx];

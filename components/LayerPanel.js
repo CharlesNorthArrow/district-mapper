@@ -45,6 +45,7 @@ export default function LayerPanel({
   layerColors = {},
   activeChoroLayer,
   onChoroLayerSelect,
+  authProfile = null,
 }) {
   const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
   const [selectedStates, setSelectedStates] = useState([]);
@@ -233,7 +234,15 @@ export default function LayerPanel({
       <div style={styles.header}>
         <div style={styles.headerTop}>
           <img src="/North_Arrow_icon.png" alt="North Arrow" style={styles.icon} />
-          <span style={styles.appName}>District Mapper</span>
+          <div style={styles.appNameWrap}>
+            <span style={styles.appName}>District Mapper</span>
+            <span
+              title="This tool is in beta — feedback and bug reports are very welcome! Reply to your welcome email or write to charles@north-arrow.org"
+              style={styles.betaBadge}
+            >
+              BETA
+            </span>
+          </div>
         </div>
         <p style={styles.attribution}>
           A nonprofit tool by{' '}
@@ -410,7 +419,18 @@ export default function LayerPanel({
       <div style={styles.section}>
         <button style={styles.sectionHeader} onClick={() => toggleSection('state')}>
           <span>State</span>
-          <span>{openSections.state ? '▲' : '▼'}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {!showStateSearch && (
+              <span
+                role="button"
+                style={styles.addBtnInline}
+                onClick={(e) => { e.stopPropagation(); setOpenSections(s => ({ ...s, state: true })); setShowStateSearch(true); }}
+              >
+                + Add state
+              </span>
+            )}
+            <span>{openSections.state ? '▲' : '▼'}</span>
+          </span>
         </button>
         {openSections.state && (
           <div style={styles.sectionBody}>
@@ -430,7 +450,7 @@ export default function LayerPanel({
             )}
 
             {/* State search — shown only when user asks for it */}
-            {showStateSearch ? (
+            {showStateSearch && (
               <div style={styles.searchBox}>
                 <input
                   autoFocus
@@ -456,10 +476,6 @@ export default function LayerPanel({
                   Cancel
                 </button>
               </div>
-            ) : (
-              <button style={styles.addBtn} onClick={() => setShowStateSearch(true)}>
-                + Add state
-              </button>
             )}
 
             {selectedStates.length > 0 ? (
@@ -488,7 +504,18 @@ export default function LayerPanel({
       <div style={styles.section}>
         <button style={styles.sectionHeader} onClick={() => toggleSection('local')}>
           <span>Local</span>
-          <span>{openSections.local ? '▲' : '▼'}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {!showCitySearch && (
+              <span
+                role="button"
+                style={styles.addBtnInline}
+                onClick={(e) => { e.stopPropagation(); setOpenSections(s => ({ ...s, local: true })); setShowCitySearch(true); }}
+              >
+                + Add city
+              </span>
+            )}
+            <span>{openSections.local ? '▲' : '▼'}</span>
+          </span>
         </button>
         {openSections.local && (
           <div style={styles.sectionBody}>
@@ -508,7 +535,7 @@ export default function LayerPanel({
             )}
 
             {/* City search — shown only when user asks for it */}
-            {showCitySearch ? (
+            {showCitySearch && (
               <div style={styles.searchBox}>
                 <input
                   autoFocus
@@ -534,10 +561,6 @@ export default function LayerPanel({
                   Cancel
                 </button>
               </div>
-            ) : (
-              <button style={styles.addBtn} onClick={() => setShowCitySearch(true)}>
-                + Add city
-              </button>
             )}
 
             {/* Layers per selected city */}
@@ -589,7 +612,7 @@ export default function LayerPanel({
         </button>
       </div>
 
-      {showGeoRequest && <GeoRequestModal onClose={() => setShowGeoRequest(false)} />}
+      {showGeoRequest && <GeoRequestModal onClose={() => setShowGeoRequest(false)} authProfile={authProfile} />}
     </div>
   );
 }
@@ -625,12 +648,22 @@ const styles = {
     flexShrink: 0,
     borderRadius: 8,
   },
+  appNameWrap: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 },
   appName: {
     fontFamily: 'Poppins, sans-serif',
     fontWeight: 700,
     fontSize: 20,
     color: '#ffffff',
     lineHeight: 1.1,
+  },
+  betaBadge: {
+    fontSize: 9, fontWeight: 700,
+    fontFamily: "'Open Sans', sans-serif",
+    color: '#1c3557', background: '#a9dadc',
+    borderRadius: 8, padding: '1px 5px',
+    letterSpacing: '0.04em', cursor: 'default',
+    animation: 'betaPulse 2.8s ease-in-out infinite',
+    display: 'inline-block',
   },
   attribution: {
     margin: 0,
@@ -822,6 +855,12 @@ const styles = {
     fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
     cursor: 'pointer', padding: '4px 10px', alignSelf: 'flex-start',
     marginBottom: 4,
+  },
+  addBtnInline: {
+    fontSize: 10, fontWeight: 600, color: 'var(--mid-blue)',
+    cursor: 'pointer', padding: '1px 6px',
+    border: '1px solid #c5d0da', borderRadius: 3,
+    background: 'none', userSelect: 'none',
   },
   cancelSearchBtn: {
     background: 'none', border: 'none', fontSize: 11, color: '#7a8fa6',

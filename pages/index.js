@@ -1009,6 +1009,7 @@ export default function Home() {
           dataBatches={dataBatches}
           enrichedPoints={enrichedPoints}
           availableLayers={matchedLayerIds}
+          activeLayers={activeLayers}
           tier={tier}
           onUpgradeClick={() => { setShowExportDialog(false); setShowUpgradeModal(true); }}
           onClose={() => setShowExportDialog(false)}
