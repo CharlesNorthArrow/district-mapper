@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useUser, useClerk, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 import MapView from '../components/MapView';
-import LayerPanel from '../components/LayerPanel';
+import LayerPanel, { NATIONAL_LAYERS, STATE_LAYERS } from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
 import Legend from '../components/Legend';
@@ -114,6 +114,7 @@ export default function Home() {
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
+  const savedExtentRef = useRef(null);
   const hiddenBatchesRef = useRef(new Set());
   const activeLayersRef = useRef([]);
   const authProfileRef = useRef(null);
@@ -147,6 +148,10 @@ export default function Home() {
   const [savedPolicies, setSavedPolicies] = useState([]);
   const [persistMsg, setPersistMsg] = useState(null); // { type: 'saving'|'saved'|'restored'|'error', text: string }
   const [suggestedLayerIds, setSuggestedLayerIds] = useState([]);
+  const [selectedStates, setSelectedStates] = useState([]);
+  const [selectedCities, setSelectedCities] = useState([]);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const multiSelectModeRef = useRef(false);
 
   // Read localStorage after mount to avoid SSR/client hydration mismatch
   useEffect(() => {
@@ -155,6 +160,8 @@ export default function Home() {
       const policies = JSON.parse(localStorage.getItem('dm_saved_policies') || '[]');
       setSavedPolicies(policies);
       setTierState(getTier());
+      const extent = JSON.parse(localStorage.getItem('dm_last_extent') || 'null');
+      if (extent) savedExtentRef.current = extent;
     } catch {}
   }, []);
 
@@ -173,6 +180,44 @@ export default function Home() {
     try { localStorage.setItem('dm_saved_policies', JSON.stringify(updated)); } catch {}
   }
 
+  function handleDeleteBatch(batchId) {
+    const remaining = dataBatches.filter(b => b.id !== batchId);
+    setDataBatches(remaining);
+    setHiddenBatches(prev => { const next = new Set(prev); next.delete(batchId); return next; });
+    const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id));
+    const batchColors = Object.fromEntries(visibleRemaining.map(b => [b.id, b.color]));
+    mapRef.current?.setPointLayer(visibleRemaining.flatMap(b => b.points), batchColors);
+  }
+
+  function toggleMultiSelectMode() {
+    const wasMulti = multiSelectMode;
+    multiSelectModeRef.current = !wasMulti;
+    setMultiSelectMode(!wasMulti);
+
+    if (wasMulti && activeLayers.length > 1) {
+      // Keep only the most recently selected layer
+      const keepLayer = activeLayers[activeLayers.length - 1];
+      for (const layerId of activeLayers) {
+        if (layerId !== keepLayer) removeLayer(layerId);
+      }
+      setActiveChoroLayer(keepLayer);
+    }
+  }
+
+  async function handleSwitchLayer(newLayerId, type, fipsArray, citySlug) {
+    for (const layerId of [...activeLayersRef.current]) {
+      if (layerId !== newLayerId) removeLayer(layerId);
+    }
+    if (type === 'national') {
+      await handleLayerToggle(newLayerId, true);
+    } else if (type === 'state') {
+      await handleStateLayerToggle(newLayerId, true, fipsArray);
+    } else if (type === 'city') {
+      await handleCityLayerToggle(citySlug, true);
+    }
+    setActiveChoroLayer(newLayerId);
+  }
+
   // Per-layer matched point counts — used for layer panel badges and analysis panel overview
   const layerCounts = useMemo(() => {
     if (enrichedPoints.length === 0) return {};
@@ -182,6 +227,19 @@ export default function Home() {
     }
     return counts;
   }, [enrichedPoints, activeLayers]);
+
+  // Full list of layers currently available in the sidebar — mirrors National/State/Local sections
+  const availableLayers = useMemo(() => {
+    const ids = [...NATIONAL_LAYERS];
+    if (selectedStates.length > 0) ids.push(...STATE_LAYERS);
+    for (const slug of selectedCities) {
+      ids.push(`council-${slug}`);
+      for (const { slug: extraSlug } of CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []) {
+        ids.push(`council-${extraSlug}`);
+      }
+    }
+    return ids;
+  }, [selectedStates, selectedCities]);
 
   // All layer IDs that have at least one matched point — used by ExportDialog geographies step
   const matchedLayerIds = useMemo(() => {
@@ -258,6 +316,10 @@ export default function Home() {
     setTierState(newTier);
   }
 
+  function handleMapMoveEnd({ center, zoom }) {
+    try { localStorage.setItem('dm_last_extent', JSON.stringify({ center, zoom })); } catch {}
+  }
+
   function handleSaveImage() {
     mapRef.current?.captureImage();
   }
@@ -327,6 +389,17 @@ export default function Home() {
   }
 
   useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
+
+  // In multi-select mode, reset to overview when a new layer is added
+  const prevLayerCountRef = useRef(0);
+  useEffect(() => {
+    const prev = prevLayerCountRef.current;
+    prevLayerCountRef.current = activeLayers.length;
+    if (multiSelectModeRef.current && activeLayers.length > prev && activeChoroLayer) {
+      mapRef.current?.showAllLayers();
+      setActiveChoroLayer(null);
+    }
+  }, [activeLayers]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { tierRef.current = tier; }, [tier]);
   useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
 
@@ -347,6 +420,11 @@ export default function Home() {
         if (data.loggedIn && data.tier) {
           setTierState(data.tier);
           tierRef.current = data.tier;
+        }
+        // Restore last map extent (dataset auto-reload's fitBounds will override this if data exists)
+        if (savedExtentRef.current) {
+          mapRef.current?.flyTo(savedExtentRef.current);
+          savedExtentRef.current = null;
         }
         if (data.loggedIn) autoReloadDataset();
       } catch {}
@@ -698,6 +776,8 @@ export default function Home() {
       setHiddenBatches(new Set());
     }
 
+    let allVisiblePoints = [];
+
     setDataBatches((prevBatches) => {
       const batchIndex = isAdd ? prevBatches.length : 0;
       const globalOffset = isAdd ? prevBatches.reduce((sum, b) => sum + b.points.length, 0) : 0;
@@ -719,16 +799,17 @@ export default function Home() {
       const visibleBatches = newBatches.filter((b) => !hiddenBatchesRef.current.has(b.id));
       const batchColors = Object.fromEntries(visibleBatches.map((b) => [b.id, b.color]));
       mapRef.current?.setPointLayer(visibleBatches.flatMap((b) => b.points), batchColors);
-
-      // Fit to the new batch's points
-      if (taggedPoints.length > 0) {
-        const lngs = taggedPoints.map((p) => p.lng);
-        const lats = taggedPoints.map((p) => p.lat);
-        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
-      }
+      allVisiblePoints = visibleBatches.flatMap((b) => b.points);
 
       return newBatches;
     });
+
+    // Fit map to show all visible points — done outside updater to avoid side effects
+    if (allVisiblePoints.length > 0) {
+      const lngs = allVisiblePoints.map((p) => p.lng);
+      const lats = allVisiblePoints.map((p) => p.lat);
+      mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+    }
 
     setShowUploadModal(false);
 
@@ -830,6 +911,7 @@ export default function Home() {
           dataBatches={dataBatches}
           hiddenBatches={hiddenBatches}
           onToggleBatch={toggleBatchVisibility}
+          onDeleteBatch={handleDeleteBatch}
           geoSuggestions={geoSuggestions}
           onAddressLookup={handleAddressLookup}
           onAddressSelect={handleAddressSelect}
@@ -845,10 +927,17 @@ export default function Home() {
           activeChoroLayer={activeChoroLayer}
           onChoroLayerSelect={handleChoroLayerSelect}
           authProfile={authProfile}
+          multiSelectMode={multiSelectMode}
+          onSwitchLayer={handleSwitchLayer}
+          onToggleMultiSelect={toggleMultiSelectMode}
+          selectedStates={selectedStates}
+          selectedCities={selectedCities}
+          onSelectedStatesChange={setSelectedStates}
+          onSelectedCitiesChange={setSelectedCities}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
-          <MapView ref={mapRef} />
+          <MapView ref={mapRef} onMoveEnd={handleMapMoveEnd} />
           {processingStatus && <ProcessingBar status={processingStatus} />}
           {clerkLoaded && (
             <div style={{
@@ -1002,6 +1091,7 @@ export default function Home() {
               savedPolicies={savedPolicies}
               onSaveScan={handleSavePolicyScan}
               onDeletePolicyScan={handleDeletePolicyScan}
+              multiSelectMode={multiSelectMode}
             />
           )}
         </div>
@@ -1030,7 +1120,7 @@ export default function Home() {
         <ExportDialog
           dataBatches={dataBatches}
           enrichedPoints={enrichedPoints}
-          suggestedLayers={suggestedLayerIds.length > 0 ? suggestedLayerIds : matchedLayerIds}
+          suggestedLayers={availableLayers}
           matchedLayers={matchedLayerIds}
           activeLayers={activeLayers}
           tier={tier}

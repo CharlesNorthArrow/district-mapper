@@ -10,12 +10,10 @@ const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, n
 
 const US_STATES = Object.keys(STATE_FIPS).sort();
 // Free layers first, then locked — within each section
-const NATIONAL_LAYERS = ['congressional', 'us-senate', 'tribal-lands', 'urban-areas'];
-const STATE_LAYERS = [
-  // Free tier
+export const NATIONAL_LAYERS = ['congressional', 'us-senate', 'tribal-lands', 'urban-areas'];
+export const STATE_LAYERS = [
   'counties', 'county-subdivisions', 'zcta',
   'state-senate', 'state-house', 'school-unified',
-  // Locked (pro+)
   'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones',
 ];
 
@@ -31,6 +29,7 @@ export default function LayerPanel({
   dataBatches,
   hiddenBatches,
   onToggleBatch,
+  onDeleteBatch,
   geoSuggestions,
   onAddressLookup,
   onAddressSelect,
@@ -46,10 +45,17 @@ export default function LayerPanel({
   activeChoroLayer,
   onChoroLayerSelect,
   authProfile = null,
+  multiSelectMode = false,
+  onSwitchLayer,
+  onToggleMultiSelect,
+  selectedStates = [],
+  selectedCities = [],
+  onSelectedStatesChange,
+  onSelectedCitiesChange,
 }) {
   const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
-  const [selectedStates, setSelectedStates] = useState([]);
-  const [selectedCities, setSelectedCities] = useState([]);
+  const setSelectedStates = onSelectedStatesChange;
+  const setSelectedCities = onSelectedCitiesChange;
   const [stateSearch, setStateSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
   const [showStateSearch, setShowStateSearch] = useState(false);
@@ -188,7 +194,7 @@ export default function LayerPanel({
     ))
     .filter(([, c]) => c.name.toLowerCase().includes(citySearch.toLowerCase()));
 
-  function LayerRow({ layerId, label, onToggle }) {
+  function LayerRow({ layerId, label, onToggle, type, fipsArray, citySlug }) {
     const isActive = activeLayers.includes(layerId);
     const isLoading = loadingLayer === layerId;
     const locked = isLayerLocked(layerId, tier);
@@ -205,7 +211,14 @@ export default function LayerPanel({
           disabled={isLoading || locked}
           onChange={locked
             ? (e) => { e.preventDefault(); onUpgradeClick?.(); }
-            : (e) => onToggle(layerId, e.target.checked)}
+            : (e) => {
+                if (!multiSelectMode && !isActive && e.target.checked) {
+                  onSwitchLayer?.(layerId, type, fipsArray, citySlug);
+                } else {
+                  onToggle(layerId, e.target.checked);
+                }
+              }
+          }
         />
         <span
           style={{
@@ -355,45 +368,59 @@ export default function LayerPanel({
         )}
       </div>
 
-      {!hasData ? (
-        <button style={styles.uploadBtn} onClick={() => onUploadClick('overwrite')}>
-          + Upload Program Data
-        </button>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <button style={styles.uploadBtn} onClick={() => onUploadClick('add')}>
-            + Add New Program Data
-          </button>
-          <button style={{ ...styles.uploadBtn, ...styles.uploadBtnSecondary }} onClick={() => onUploadClick('overwrite')}>
-            Overwrite Program Data
-          </button>
-        </div>
-      )}
+      <button style={styles.uploadBtn} onClick={() => onUploadClick('add')}>
+        + Add New Data
+      </button>
 
-      {/* Program Data section */}
+      {/* My Data section */}
       {dataBatches?.length > 0 && (
         <div style={styles.section}>
           <button style={styles.sectionHeader} onClick={() => toggleSection('data')}>
-            <span>Program Data</span>
+            <span>My Data</span>
             <span>{openSections.data ? '▲' : '▼'}</span>
           </button>
           {openSections.data && (
             <div style={styles.sectionBody}>
               {dataBatches.map((batch) => (
-                <label key={batch.id} style={styles.layerRow}>
-                  <input
-                    type="checkbox"
-                    checked={!hiddenBatches?.has(batch.id)}
-                    onChange={() => onToggleBatch?.(batch.id)}
-                  />
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: batch.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 13 }}>{batch.label}</span>
-                </label>
+                <div key={batch.id} style={{ ...styles.layerRow, justifyContent: 'space-between' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={!hiddenBatches?.has(batch.id)}
+                      onChange={() => onToggleBatch?.(batch.id)}
+                    />
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: batch.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13 }}>{batch.label}</span>
+                  </label>
+                  <button
+                    onClick={() => onDeleteBatch?.(batch.id)}
+                    title="Delete this dataset"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#7a8fa6', padding: '0 0 0 6px', lineHeight: 1, flexShrink: 0 }}
+                  >✕</button>
+                </div>
               ))}
             </div>
           )}
         </div>
       )}
+
+      {/* Geographies mode toggle */}
+      <div style={styles.modeToggleContainer}>
+        <div style={styles.modeTogglePill}>
+          <button
+            style={{ ...styles.modeToggleBtn, ...((!multiSelectMode) ? styles.modeToggleBtnActive : {}) }}
+            onClick={() => { if (multiSelectMode) onToggleMultiSelect?.(); }}
+          >
+            Single Select
+          </button>
+          <button
+            style={{ ...styles.modeToggleBtn, ...(multiSelectMode ? styles.modeToggleBtnActive : {}) }}
+            onClick={() => { if (!multiSelectMode) onToggleMultiSelect?.(); }}
+          >
+            Multi Select
+          </button>
+        </div>
+      </div>
 
       {/* National section */}
       <div style={styles.section}>
@@ -409,6 +436,7 @@ export default function LayerPanel({
                 layerId={layerId}
                 label={LAYER_CONFIG[layerId].displayName}
                 onToggle={onLayerToggle}
+                type="national"
               />
             ))}
           </div>
@@ -486,6 +514,8 @@ export default function LayerPanel({
                     layerId={layerId}
                     label={LAYER_CONFIG[layerId].displayName}
                     onToggle={(id, checked) => handleStateLayerCheck(id, checked)}
+                    type="state"
+                    fipsArray={selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean)}
                   />
                 ))}
               </div>
@@ -575,6 +605,8 @@ export default function LayerPanel({
                       layerId={`council-${slug}`}
                       label="Council Districts"
                       onToggle={(_, checked) => onCityLayerToggle(slug, checked)}
+                      type="city"
+                      citySlug={slug}
                     />
                     {(CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []).map(({ slug: extraSlug, label }) => (
                       <LayerRow
@@ -582,6 +614,8 @@ export default function LayerPanel({
                         layerId={`council-${extraSlug}`}
                         label={label}
                         onToggle={(_, checked) => onCityLayerToggle(extraSlug, checked)}
+                        type="city"
+                        citySlug={extraSlug}
                       />
                     ))}
                   </div>
@@ -886,6 +920,38 @@ const styles = {
     display: 'inline-block', fontSize: 10, fontWeight: 700,
     padding: '1px 5px', borderRadius: 8,
     lineHeight: 1.5, flexShrink: 0,
+  },
+  modeToggleContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '10px 16px',
+    borderBottom: '1px solid #dde3ea',
+    background: '#f7f9fc',
+  },
+  modeTogglePill: {
+    display: 'flex',
+    background: '#e8edf2',
+    borderRadius: 20,
+    padding: 2,
+    gap: 2,
+  },
+  modeToggleBtn: {
+    border: 'none',
+    borderRadius: 18,
+    padding: '4px 10px',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    background: 'transparent',
+    color: '#7a8fa6',
+    transition: 'background 0.15s, color 0.15s',
+    whiteSpace: 'nowrap',
+  },
+  modeToggleBtnActive: {
+    background: '#fff',
+    color: 'var(--dark-navy)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
   },
   geoRequestBtn: {
     width: '100%',
