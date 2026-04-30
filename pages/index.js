@@ -583,7 +583,8 @@ export default function Home() {
       mapRef.current?.showAllLayers();
     }
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
-    setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+    // layerGeojson is intentionally kept — removing it would re-trigger assignDistricts
+    // and wipe the district columns from enrichedPoints, breaking the export dialog.
     setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
     delete layerFipsRef.current[layerId];
     mapRef.current?.removeBoundaryLayer(layerId); // also cleans up count labels
