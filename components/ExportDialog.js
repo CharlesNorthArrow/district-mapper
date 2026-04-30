@@ -86,7 +86,7 @@ function getLayerDisplayName(layerId) {
 export default function ExportDialog({
   dataBatches,
   enrichedPoints,
-  activeLayers,
+  availableLayers,
   tier,
   onUpgradeClick,
   onClose,
@@ -97,7 +97,7 @@ export default function ExportDialog({
   const [stepIdx, setStepIdx] = useState(0);
   const [format, setFormat] = useState('csv');
   const [selectedBatches, setSelectedBatches] = useState(() => new Set(dataBatches.map((b) => b.id)));
-  const [selectedLayers, setSelectedLayers] = useState(() => new Set(activeLayers));
+  const [selectedLayers, setSelectedLayers] = useState(() => new Set(availableLayers));
   const [pdfLoading, setPdfLoading] = useState(false);
 
   const currentStep = steps[stepIdx];
@@ -132,8 +132,8 @@ export default function ExportDialog({
   );
 
   const selectedLayerList = useMemo(
-    () => activeLayers.filter((l) => selectedLayers.has(l)),
-    [activeLayers, selectedLayers]
+    () => availableLayers.filter((l) => selectedLayers.has(l)),
+    [availableLayers, selectedLayers]
   );
 
   const numericFields = useMemo(() => {
@@ -277,7 +277,11 @@ export default function ExportDialog({
           {currentStep === 'geographies' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <p style={bodyHint}>Choose which geographic layers to include in the export.</p>
-              {activeLayers.map((layerId) => (
+              {availableLayers.length === 0 ? (
+                <p style={{ fontSize: 12, color: '#9aabb8', fontStyle: 'italic' }}>
+                  No geographic layers matched yet. Enable boundary layers from the left panel and your data will be assigned automatically.
+                </p>
+              ) : availableLayers.map((layerId) => (
                 <label key={layerId} style={checkRow}>
                   <input
                     type="checkbox"

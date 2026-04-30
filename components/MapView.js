@@ -2,6 +2,22 @@ import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import { ABBR_TO_FIPS } from '../lib/stateFips';
+import { LAYER_CONFIG } from '../lib/layerConfig';
+import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
+
+function getBoundaryDisplayName(id) {
+  if (LAYER_CONFIG[id]) return LAYER_CONFIG[id].displayName;
+  if (id.startsWith('council-')) {
+    const slug = id.slice('council-'.length);
+    for (const [, city] of Object.entries(CITY_COUNCIL_REGISTRY)) {
+      const extra = (city.extraLayers || []).find((e) => e.slug === slug);
+      if (extra) return extra.label;
+    }
+    const city = CITY_COUNCIL_REGISTRY[slug];
+    return city ? `${city.name} Council` : slug;
+  }
+  return id;
+}
 
 function buildPopupHTML(properties) {
   const skip = new Set(['_rowIndex', '_globalIndex', '_batchId', '_geocodeConfidence', '_datasetLabel', 'lat', 'lng']);
@@ -26,6 +42,9 @@ const MapView = forwardRef(function MapView(_, ref) {
   const mapRef = useRef(null);
   const addedLayers = useRef(new Set());
   const popupRef = useRef(null);
+  const hoverPopupRef = useRef(null);
+  const choroDataRef = useRef(null); // { layerId, plainCounts, total, districtField }
+  const layerMetaRef = useRef({}); // { [layerId]: { fillId, displayName } }
   const pointClickHandlerRef = useRef(null);
   const pointEnterHandlerRef = useRef(null);
   const pointLeaveHandlerRef = useRef(null);
@@ -46,10 +65,53 @@ const MapView = forwardRef(function MapView(_, ref) {
       style: 'mapbox://styles/mapbox/light-v11',
       center: [-96, 38],
       zoom: 4,
+      preserveDrawingBuffer: true,
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
+
+    // Single global boundary hover handler — queries all active fill layers
+    map.on('mousemove', (e) => {
+      const meta = layerMetaRef.current;
+      const fillIds = Object.values(meta).map((m) => m.fillId).filter((fid) => map.getLayer(fid));
+      if (!fillIds.length) { hoverPopupRef.current?.remove(); return; }
+
+      const features = map.queryRenderedFeatures(e.point, { layers: fillIds });
+      if (!features.length) { hoverPopupRef.current?.remove(); return; }
+
+      const seen = new Set();
+      const lines = [];
+      for (const feat of features) {
+        const layerId = feat.layer.id.replace(/-fill$/, '');
+        if (seen.has(layerId)) continue;
+        seen.add(layerId);
+        const info = meta[layerId];
+        if (!info) continue;
+        const p = feat.properties;
+        const choro = choroDataRef.current;
+        if (choro && choro.layerId === layerId) {
+          const key = String(p[choro.districtField] ?? p.NAME ?? p.NAMELSAD ?? '');
+          const count = choro.plainCounts[key] ?? 0;
+          const pct = choro.total > 0 ? ((count / choro.total) * 100).toFixed(1) : '0.0';
+          lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; <strong>${count.toLocaleString()}</strong> pts &middot; ${pct}%</div>`);
+        } else {
+          const name = p.NAMELSAD || p.NAME || p.name || p.DISTRICT || p.GEOID || '';
+          if (name) lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; ${name}</div>`);
+        }
+      }
+
+      if (!lines.length) { hoverPopupRef.current?.remove(); return; }
+
+      if (!hoverPopupRef.current) {
+        hoverPopupRef.current = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
+      }
+      hoverPopupRef.current
+        .setLngLat(e.lngLat)
+        .setHTML(`<div style="font-family:'Open Sans',sans-serif;font-size:12px;color:#1c3557;line-height:1.8;padding:2px 2px">${lines.join('')}</div>`)
+        .addTo(map);
+    });
+
     return () => map.remove();
   }, []);
 
@@ -58,48 +120,34 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map) return;
 
-      const fillId = `${id}-fill`;
-      const lineId = `${id}-line`;
-      const hFillId = `lookup-${id}-fill`;
-      const hLineId = `lookup-${id}-line`;
-      // Remove lookup highlight layers first — they reference the same source and
-      // Mapbox won't allow removeSource while any layer still uses it.
-      if (map.getLayer(hFillId)) map.removeLayer(hFillId);
-      if (map.getLayer(hLineId)) map.removeLayer(hLineId);
-      lookupHighlightIds.current = lookupHighlightIds.current.filter((h) => h !== `lookup-${id}`);
-      if (map.getLayer(fillId)) map.removeLayer(fillId);
-      if (map.getLayer(lineId)) map.removeLayer(lineId);
-      if (map.getSource(id)) map.removeSource(id);
+      const doAdd = () => {
+        const fillId = `${id}-fill`;
+        const lineId = `${id}-line`;
+        const hFillId = `lookup-${id}-fill`;
+        const hLineId = `lookup-${id}-line`;
+        if (map.getLayer(hFillId)) map.removeLayer(hFillId);
+        if (map.getLayer(hLineId)) map.removeLayer(hLineId);
+        lookupHighlightIds.current = lookupHighlightIds.current.filter((h) => h !== `lookup-${id}`);
+        if (map.getLayer(fillId)) map.removeLayer(fillId);
+        if (map.getLayer(lineId)) map.removeLayer(lineId);
+        if (map.getSource(id)) map.removeSource(id);
 
-      // Always insert boundary layers below the point layer so points stay on top
-      const beforeLayer = map.getLayer('uploaded-points') ? 'uploaded-points' : undefined;
+        const beforeLayer = map.getLayer('uploaded-points') ? 'uploaded-points' : undefined;
+        map.addSource(id, { type: 'geojson', data: geojson });
+        map.addLayer({ id: fillId, type: 'fill', source: id, paint: { 'fill-color': color, 'fill-opacity': 0.1 } }, beforeLayer);
+        map.addLayer({ id: lineId, type: 'line', source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } }, beforeLayer);
+        addedLayers.current.add(id);
+        layerMetaRef.current[id] = { fillId, displayName: getBoundaryDisplayName(id) };
+      };
 
-      map.addSource(id, { type: 'geojson', data: geojson });
-      map.addLayer({
-        id: fillId,
-        type: 'fill',
-        source: id,
-        paint: {
-          'fill-color': color,
-          'fill-opacity': 0.1,
-        },
-      }, beforeLayer);
-      map.addLayer({
-        id: lineId,
-        type: 'line',
-        source: id,
-        paint: {
-          'line-color': color,
-          'line-width': 1.5,
-          'line-opacity': 0.8,
-        },
-      }, beforeLayer);
-      addedLayers.current.add(id);
+      if (map.isStyleLoaded()) doAdd();
+      else map.once('load', doAdd);
     },
 
     removeBoundaryLayer(id) {
       const map = mapRef.current;
       if (!map) return;
+      delete layerMetaRef.current[id];
       // Clean up count labels before removing source
       const cntLbl = `${id}-cnt-lbl`;
       const cntSrc = `${id}-cnt-src`;
@@ -121,65 +169,67 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map) return;
 
-      // Remove previous listeners before removing the layer
-      if (pointClickHandlerRef.current) {
-        map.off('click', 'uploaded-points', pointClickHandlerRef.current);
-        map.off('mouseenter', 'uploaded-points', pointEnterHandlerRef.current);
-        map.off('mouseleave', 'uploaded-points', pointLeaveHandlerRef.current);
-      }
-      if (map.getLayer('uploaded-points')) map.removeLayer('uploaded-points');
-      if (map.getSource('uploaded-points')) map.removeSource('uploaded-points');
+      const doSet = () => {
+        if (pointClickHandlerRef.current) {
+          map.off('click', 'uploaded-points', pointClickHandlerRef.current);
+          map.off('mouseenter', 'uploaded-points', pointEnterHandlerRef.current);
+          map.off('mouseleave', 'uploaded-points', pointLeaveHandlerRef.current);
+        }
+        if (map.getLayer('uploaded-points')) map.removeLayer('uploaded-points');
+        if (map.getSource('uploaded-points')) map.removeSource('uploaded-points');
 
-      const geojson = {
-        type: 'FeatureCollection',
-        features: points.map((p) => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-          properties: { ...p },
-        })),
+        const geojson = {
+          type: 'FeatureCollection',
+          features: points.map((p) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+            properties: { ...p },
+          })),
+        };
+
+        const entries = Object.entries(batchColors);
+        const colorExpr = entries.length > 1
+          ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
+          : (entries[0]?.[1] ?? '#e63947');
+
+        map.addSource('uploaded-points', { type: 'geojson', data: geojson });
+        map.addLayer({
+          id: 'uploaded-points',
+          type: 'circle',
+          source: 'uploaded-points',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': colorExpr,
+            'circle-opacity': 0.85,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#fff',
+          },
+        });
+
+        if (!popupRef.current) {
+          popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '320px' });
+        }
+        const popup = popupRef.current;
+
+        const clickHandler = (e) => {
+          const feature = e.features?.[0];
+          if (!feature) return;
+          popup.setLngLat(e.lngLat).setHTML(buildPopupHTML(feature.properties)).addTo(map);
+        };
+        const enterHandler = () => { map.getCanvas().style.cursor = 'pointer'; };
+        const leaveHandler = () => { map.getCanvas().style.cursor = ''; };
+
+        map.on('click', 'uploaded-points', clickHandler);
+        map.on('mouseenter', 'uploaded-points', enterHandler);
+        map.on('mouseleave', 'uploaded-points', leaveHandler);
+
+        pointClickHandlerRef.current = clickHandler;
+        pointEnterHandlerRef.current = enterHandler;
+        pointLeaveHandlerRef.current = leaveHandler;
       };
 
-      // Build a match expression so each batch gets its own color
-      const entries = Object.entries(batchColors);
-      const colorExpr = entries.length > 1
-        ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
-        : (entries[0]?.[1] ?? '#e63947');
-
-      map.addSource('uploaded-points', { type: 'geojson', data: geojson });
-      map.addLayer({
-        id: 'uploaded-points',
-        type: 'circle',
-        source: 'uploaded-points',
-        paint: {
-          'circle-radius': 5,
-          'circle-color': colorExpr,
-          'circle-opacity': 0.85,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#fff',
-        },
-      });
-
-      // Reuse or create a single popup instance
-      if (!popupRef.current) {
-        popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '320px' });
-      }
-      const popup = popupRef.current;
-
-      const clickHandler = (e) => {
-        const feature = e.features?.[0];
-        if (!feature) return;
-        popup.setLngLat(e.lngLat).setHTML(buildPopupHTML(feature.properties)).addTo(map);
-      };
-      const enterHandler = () => { map.getCanvas().style.cursor = 'pointer'; };
-      const leaveHandler = () => { map.getCanvas().style.cursor = ''; };
-
-      map.on('click', 'uploaded-points', clickHandler);
-      map.on('mouseenter', 'uploaded-points', enterHandler);
-      map.on('mouseleave', 'uploaded-points', leaveHandler);
-
-      pointClickHandlerRef.current = clickHandler;
-      pointEnterHandlerRef.current = enterHandler;
-      pointLeaveHandlerRef.current = leaveHandler;
+      if (map.isStyleLoaded()) doSet();
+      else map.once('load', doSet);
     },
 
     fitBounds(bbox) {
@@ -214,6 +264,7 @@ const MapView = forwardRef(function MapView(_, ref) {
     showAllLayers() {
       const map = mapRef.current;
       if (!map) return;
+      choroDataRef.current = null;
       for (const id of addedLayers.current) {
         if (map.getLayer(`${id}-fill`)) {
           map.setLayoutProperty(`${id}-fill`, 'visibility', 'visible');
@@ -223,7 +274,8 @@ const MapView = forwardRef(function MapView(_, ref) {
       }
     },
 
-    setChoropleth(layerId, districtCounts, districtField, layerColor, stateField) {
+    setChoropleth(layerId, districtCounts, districtField, layerColor, stateField, plainCounts = {}, total = 0) {
+      choroDataRef.current = { layerId, plainCounts, total, districtField };
       const map = mapRef.current;
       if (!map) return;
       const fillId = `${layerId}-fill`;
@@ -303,6 +355,7 @@ const MapView = forwardRef(function MapView(_, ref) {
       if (map.getLayer(fillId)) {
         map.setPaintProperty(fillId, 'fill-opacity', 0.1);
       }
+      if (choroDataRef.current?.layerId === layerId) choroDataRef.current = null;
     },
 
     // highlights: [{ layerId, displayName, districtField, stateField }]
@@ -440,6 +493,22 @@ const MapView = forwardRef(function MapView(_, ref) {
       });
       map.flyTo({ center: [lng, lat], zoom: 14 });
     },
+
+    captureImage() {
+      const canvas = mapRef.current?.getCanvas();
+      if (!canvas) return;
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'district-map.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    },
+
+    getCenter() { return mapRef.current?.getCenter(); },
+    getZoom() { return mapRef.current?.getZoom(); },
   }));
 
   return (

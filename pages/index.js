@@ -182,6 +182,21 @@ export default function Home() {
     return counts;
   }, [enrichedPoints, activeLayers]);
 
+  // All layer IDs that have at least one matched point — used by ExportDialog geographies step
+  const matchedLayerIds = useMemo(() => {
+    if (enrichedPoints.length === 0) return [];
+    const csvHeaders = new Set(dataBatches.flatMap((b) => b.headers));
+    const found = new Set();
+    for (const p of enrichedPoints) {
+      for (const key of Object.keys(p)) {
+        if (!key.startsWith('_') && key !== 'lat' && key !== 'lng' && !csvHeaders.has(key) && p[key] != null) {
+          found.add(key);
+        }
+      }
+    }
+    return [...found];
+  }, [enrichedPoints, dataBatches]);
+
   function getDistrictField(layerId) {
     if (LAYER_CONFIG[layerId]) return { districtField: LAYER_CONFIG[layerId].districtField, stateField: LAYER_CONFIG[layerId].stateField };
     if (layerId.startsWith('council-')) {
@@ -222,12 +237,10 @@ export default function Home() {
 
     setActiveChoroLayer(layerId);
 
-    // Isolate the selected layer, apply choropleth and count labels
     mapRef.current?.isolateLayer(layerId);
     const { counts, plainCounts, districtField, stateField, color } = buildChoroData(layerId);
-    const geojson = layerGeojson[layerId];
-    mapRef.current?.setChoropleth(layerId, counts, districtField, color, stateField);
-    if (geojson) mapRef.current?.addCountLabels(layerId, geojson, plainCounts, districtField);
+    const total = Object.values(counts).reduce((s, c) => s + c, 0);
+    mapRef.current?.setChoropleth(layerId, counts, districtField, color, stateField, plainCounts, total);
   }
 
   // Keep choropleth and labels in sync when enrichedPoints updates
@@ -235,11 +248,8 @@ export default function Home() {
     if (!activeChoroLayer || enrichedPoints.length === 0) return;
     const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer);
     const geojson = layerGeojson[activeChoroLayer];
-    mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField);
-    if (geojson) {
-      mapRef.current?.removeCountLabels(activeChoroLayer);
-      mapRef.current?.addCountLabels(activeChoroLayer, geojson, plainCounts, districtField);
-    }
+    const total = Object.values(counts).reduce((s, c) => s + c, 0);
+    mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
   }, [enrichedPoints, activeChoroLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleUnlock(newTier) {
@@ -890,9 +900,9 @@ export default function Home() {
           {/* Export / share buttons — sit below Mapbox NavigationControl (top-right) */}
           <div style={{ position: 'absolute', top: 116, right: 10, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <button
-              onClick={handleSaveImage}
-              title="Save map image"
-              style={mapActionBtn}
+              onClick={dataBatches.length > 0 ? handleSaveImage : undefined}
+              title={dataBatches.length > 0 ? 'Save map image' : 'Upload data first to save a map image'}
+              style={{ ...mapActionBtn, ...(dataBatches.length === 0 ? { opacity: 0.35, cursor: 'not-allowed' } : {}) }}
             >
               {/* Camera icon */}
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -901,9 +911,9 @@ export default function Home() {
               </svg>
             </button>
             <button
-              onClick={handleCopyShareLink}
-              title={shareCopied ? 'Link copied!' : 'Copy share link'}
-              style={{ ...mapActionBtn, color: shareCopied ? '#166534' : '#333', background: shareCopied ? '#dcfce7' : '#fff' }}
+              onClick={dataBatches.length > 0 ? handleCopyShareLink : undefined}
+              title={dataBatches.length > 0 ? (shareCopied ? 'Link copied!' : 'Copy share link') : 'Upload data first to share a link'}
+              style={{ ...mapActionBtn, ...(dataBatches.length === 0 ? { opacity: 0.35, cursor: 'not-allowed' } : { color: shareCopied ? '#166534' : '#333', background: shareCopied ? '#dcfce7' : '#fff' }) }}
             >
               {shareCopied ? (
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -918,19 +928,17 @@ export default function Home() {
                 </svg>
               )}
             </button>
-            {dataBatches.length > 0 && activeLayers.length > 0 && (
-              <button
-                onClick={() => setShowExportDialog(true)}
-                title="Export data"
-                style={mapActionBtn}
-              >
-                {/* Download icon */}
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 11h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
-              </button>
-            )}
+            <button
+              onClick={dataBatches.length > 0 ? () => setShowExportDialog(true) : undefined}
+              title={dataBatches.length > 0 ? 'Export data' : 'Upload data first to export'}
+              style={{ ...mapActionBtn, ...(dataBatches.length === 0 ? { opacity: 0.35, cursor: 'not-allowed' } : {}) }}
+            >
+              {/* Download icon */}
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 11h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            </button>
           </div>
 
           {loadingLayer && (
@@ -1000,7 +1008,7 @@ export default function Home() {
         <ExportDialog
           dataBatches={dataBatches}
           enrichedPoints={enrichedPoints}
-          activeLayers={activeLayers}
+          availableLayers={matchedLayerIds}
           tier={tier}
           onUpgradeClick={() => { setShowExportDialog(false); setShowUpgradeModal(true); }}
           onClose={() => setShowExportDialog(false)}
