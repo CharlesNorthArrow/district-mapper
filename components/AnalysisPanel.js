@@ -5,7 +5,6 @@ import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 import { isPolicyPulseLocked } from '../lib/tierConfig';
 import { isScannableLayer } from '../lib/policyPulse';
-import ExportControls from './ExportControls';
 import FilterBar, { applyFilters } from './FilterBar';
 import AnalysisGuide from './AnalysisGuide';
 import PolicyDrawer from './PolicyPulse/PolicyDrawer';
@@ -289,20 +288,6 @@ export default function AnalysisPanel({
             </button>
           </div>
 
-          <div>
-            <ExportControls
-              originalRows={originalRows}
-              enrichedPoints={enrichedPoints}
-              activeLayers={activeLayers}
-              layerSummary={layerSummary}
-              numericFields={numericFields}
-              pointCount={points.length}
-              compact
-              tier={tier}
-              onUpgradeClick={onUpgradeClick}
-            />
-          </div>
-
           {open && (
             <button style={guideBtn} onClick={() => setShowGuide(true)}>
               What am I looking at?
@@ -448,7 +433,7 @@ export default function AnalysisPanel({
                                   onClick={(e) => { e.stopPropagation(); setPolicyDrawer({ layerId: activeChoroLayer, districtName: row.districtName, stateFips: null }); }}
                                   style={scanBtn}
                                 >
-                                  🔍 Scan Policy
+                                  🔍 Scan Policies
                                 </button>
                               )}
                               {isScannableLayer(activeChoroLayer) && isPolicyPulseLocked(tier) && (
@@ -495,6 +480,49 @@ export default function AnalysisPanel({
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Saved Policy Scans */}
+      {savedPolicies.length > 0 && (
+        <div style={{ borderTop: '1px solid #e8edf2', flexShrink: 0 }}>
+          <div style={{
+            padding: '6px 16px', background: '#f7f9fc',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#1c3557', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Saved Scans ({savedPolicies.length})
+            </span>
+          </div>
+          <div style={{ maxHeight: 130, overflowY: 'auto' }}>
+            {savedPolicies.map((scan) => (
+              <div key={scan.id} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 16px', borderBottom: '1px solid #f0f4f8', fontSize: 12,
+              }}>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1c3557', fontWeight: 600 }}>
+                  {scan.districtName}
+                </span>
+                <span style={{ fontSize: 11, color: '#7a8fa6', flexShrink: 0 }}>
+                  {scan.bills?.length ?? 0} bills · {scan.savedAt}
+                </span>
+                <button
+                  onClick={() => {
+                    setPolicyDrawer({ layerId: scan.layerId, districtName: scan.districtName, stateFips: null });
+                  }}
+                  style={savedScanViewBtn}
+                >
+                  View
+                </button>
+                <button
+                  onClick={() => onDeletePolicyScan?.(scan.id)}
+                  style={savedScanDeleteBtn}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -599,6 +627,14 @@ const scanBtn = {
   background: 'none', border: '1px solid #a9dadc', borderRadius: 4,
   padding: '2px 8px', fontSize: 11, color: '#1c3557',
   cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
+};
+const savedScanViewBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 11, color: '#467c9d', fontWeight: 600, flexShrink: 0,
+};
+const savedScanDeleteBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 11, color: '#e63947', flexShrink: 0,
 };
 const scanBtnLocked = {
   background: 'none', border: '1px solid #e0e0e0', borderRadius: 4,

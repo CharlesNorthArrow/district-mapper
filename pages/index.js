@@ -1,6 +1,7 @@
 import Head from 'next/head';
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { useUser, SignInButton, UserButton } from '@clerk/nextjs';
+import { useRouter } from 'next/router';
+import { useUser, useClerk, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 import MapView from '../components/MapView';
 import LayerPanel from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
@@ -10,6 +11,7 @@ import TourOverlay from '../components/TourOverlay';
 import ProcessingBar from '../components/ProcessingBar';
 import OverflowBanner from '../components/OverflowBanner';
 import UpgradeModal from '../components/UpgradeModal';
+import ExportDialog from '../components/ExportDialog';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies, STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
@@ -42,6 +44,8 @@ function detectCitiesFromPoints(points) {
   }
   return detected;
 }
+import { getAuth } from '@clerk/nextjs/server';
+import { sql } from '@vercel/postgres';
 import { LAYER_COLORS, DEFAULT_LAYER_COLOR, CUSTOM_COLOR_POOL } from '../lib/layerColors';
 import { STATE_FIPS } from '../lib/stateFips';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
@@ -92,8 +96,21 @@ const tourBtnStyle = {
   animation: 'breathe 3s ease-in-out infinite',
 };
 
+const mapActionBtn = {
+  width: 29, height: 29,
+  background: '#fff',
+  border: 'none',
+  borderRadius: 4,
+  cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 0 0 2px rgba(0,0,0,0.1)',
+  color: '#333',
+};
+
 export default function Home() {
+  const router = useRouter();
   const { isLoaded: clerkLoaded, isSignedIn } = useUser();
+  const { openSignUp } = useClerk();
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
@@ -101,6 +118,9 @@ export default function Home() {
   const activeLayersRef = useRef([]);
   const authProfileRef = useRef(null);
   const tierRef = useRef(getTier());
+  const layerFipsRef = useRef({});
+  const isSignedInRef = useRef(false);
+  const autoReloadingRef = useRef(false);
   const [activeLayers, setActiveLayers] = useState([]);
   const [authProfile, setAuthProfile] = useState(null);
   const [layerColors, setLayerColors] = useState({});
@@ -115,23 +135,33 @@ export default function Home() {
   const [lookupStatus, setLookupStatus] = useState('idle');
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
-  const [showTour, setShowTour] = useState(() => {
-    try { return localStorage.getItem('dm_tour_dismissed') !== '1'; } catch { return true; }
-  });
+  const [showTour, setShowTour] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [tier, setTierState] = useState(() => getTier());
+  const [shareCopied, setShareCopied] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [tier, setTierState] = useState('free_anonymous');
   const [overflowCount, setOverflowCount] = useState(0);
   const [showOverflowBanner, setShowOverflowBanner] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null); // null | { phase, done, total }
   const [activeChoroLayer, setActiveChoroLayer] = useState(null);
-  const [savedPolicies, setSavedPolicies] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('dm_saved_policies') || '[]'); } catch { return []; }
-  });
+  const [savedPolicies, setSavedPolicies] = useState([]);
+  const [persistMsg, setPersistMsg] = useState(null); // { type: 'saving'|'saved'|'restored'|'error', text: string }
+
+  // Read localStorage after mount to avoid SSR/client hydration mismatch
+  useEffect(() => {
+    try {
+      setShowTour(localStorage.getItem('dm_tour_dismissed') !== '1');
+      const policies = JSON.parse(localStorage.getItem('dm_saved_policies') || '[]');
+      setSavedPolicies(policies);
+      setTierState(getTier());
+    } catch {}
+  }, []);
 
   function handleSavePolicyScan({ districtName, layerId, mission, bills }) {
     const scan = { id: Date.now(), districtName, layerId, mission, bills,
                    savedAt: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) };
-    const updated = [scan, ...savedPolicies].slice(0, 10);
+    const prev = Array.isArray(savedPolicies) ? savedPolicies : [];
+    const updated = [scan, ...prev].slice(0, 10);
     setSavedPolicies(updated);
     try { localStorage.setItem('dm_saved_policies', JSON.stringify(updated)); } catch {}
   }
@@ -217,16 +247,90 @@ export default function Home() {
     setTierState(newTier);
   }
 
+  function handleSaveImage() {
+    mapRef.current?.captureImage();
+  }
+
+  function handleCopyShareLink() {
+    try {
+      const center = mapRef.current?.getCenter();
+      const zoom = mapRef.current?.getZoom();
+
+      // When a choropleth is active, all other layers are hidden (isolated).
+      // Only encode what's actually visible.
+      const visibleLayerIds = activeChoroLayer ? [activeChoroLayer] : activeLayers;
+
+      const layers = visibleLayerIds.map((id) => {
+        const color = layerColors[id];
+        if (id.startsWith('council-')) {
+          return { id, type: 'city', slug: id.slice('council-'.length), color };
+        }
+        const cfg = LAYER_CONFIG[id];
+        if (cfg && (cfg.queryMode === 'byState' || cfg.queryMode === 'byBbox')) {
+          return { id, type: 'state', fips: layerFipsRef.current[id] || [], color };
+        }
+        return { id, type: 'national', color };
+      });
+
+      // Choropleth — encode raw counts so preview can apply the same intensity
+      let choro = null;
+      if (activeChoroLayer) {
+        const { counts, districtField, stateField, color } = buildChoroData(activeChoroLayer);
+        choro = { layerId: activeChoroLayer, counts, districtField, stateField, color };
+      }
+
+      // Visible point batches — compact [lat, lng] pairs, capped at 5000 per batch
+      const visibleBatches = dataBatches.filter((b) => !hiddenBatches.has(b.id));
+      const pointBatches = visibleBatches.length > 0
+        ? visibleBatches.map((b) => ({
+            label: b.label,
+            color: b.color,
+            pts: b.points.slice(0, 5000).map((p) => [
+              Math.round(p.lat * 10000) / 10000,
+              Math.round(p.lng * 10000) / 10000,
+            ]),
+          }))
+        : null;
+
+      const state = {
+        center: [center?.lng ?? -96, center?.lat ?? 38],
+        zoom: zoom ?? 4,
+        layers,
+        choro,
+        pointBatches,
+      };
+      // Unicode-safe base64: encodeURIComponent handles multi-byte chars, unescape maps to Latin1
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+      const url = `${window.location.origin}/preview?s=${encoded}`;
+      navigator.clipboard.writeText(url).then(() => {
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }).catch(() => {
+        // Clipboard API unavailable — fall back to prompt
+        window.prompt('Copy this link:', url);
+      });
+    } catch (err) {
+      console.error('[share] failed to build share link:', err);
+      alert('Could not generate share link — see console for details.');
+    }
+  }
+
   useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
   useEffect(() => { tierRef.current = tier; }, [tier]);
+  useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
 
-  // Fetch auth profile on mount; sync tier and auto-reload saved dataset if logged in
+  // Fetch auth profile once Clerk has loaded; sync tier and auto-reload saved dataset if logged in
   useEffect(() => {
+    if (!clerkLoaded) return;
     async function loadAuthProfile() {
       try {
         const res = await fetch('/api/auth/me');
         if (!res.ok) return;
         const data = await res.json();
+        if (data.loggedIn && !data.orgId) {
+          router.replace('/onboarding');
+          return;
+        }
         setAuthProfile(data);
         authProfileRef.current = data;
         if (data.loggedIn && data.tier) {
@@ -237,20 +341,37 @@ export default function Home() {
       } catch {}
     }
     loadAuthProfile();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clerkLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function autoReloadDataset() {
     try {
+      setPersistMsg({ type: 'saving', text: 'Restoring your dataset…' });
       const res = await fetch('/api/auth/load-dataset');
-      if (!res.ok) return;
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setPersistMsg({ type: 'error', text: `Restore failed (${res.status}): ${e.error || 'unknown error'}` });
+        return;
+      }
       const { dataset } = await res.json();
-      if (!dataset?.blob_url) return;
-      const blobRes = await fetch(dataset.blob_url);
-      if (!blobRes.ok) return;
-      const { points, originalRows, headers, title } = await blobRes.json();
-      if (!points?.length) return;
-      handleUploadComplete(points, originalRows, headers, null, title || dataset.filename || '', 0);
-    } catch {}
+      if (!dataset?.points?.length) {
+        setPersistMsg(null);
+        return;
+      }
+      autoReloadingRef.current = true;
+      handleUploadComplete(
+        dataset.points,
+        dataset.originalRows ?? [],
+        dataset.headers ?? [],
+        null,
+        dataset.title || dataset.filename || '',
+        0,
+      );
+      autoReloadingRef.current = false;
+      setPersistMsg({ type: 'restored', text: `↺ Dataset restored (${dataset.points.length} records)` });
+      setTimeout(() => setPersistMsg(null), 5000);
+    } catch (err) {
+      setPersistMsg({ type: 'error', text: `Restore error: ${err.message}` });
+    }
   }
 
   useEffect(() => {
@@ -454,6 +575,7 @@ export default function Home() {
     setActiveLayers((prev) => prev.filter((id) => id !== layerId));
     setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
     setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+    delete layerFipsRef.current[layerId];
     mapRef.current?.removeBoundaryLayer(layerId); // also cleans up count labels
   }
 
@@ -507,6 +629,7 @@ export default function Home() {
       setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
       setLayerGeojson((prev) => ({ ...prev, [layerId]: merged }));
       setLayerColors((prev) => ({ ...prev, [layerId]: color }));
+      layerFipsRef.current[layerId] = fipsArray;
     } catch (err) {
       alert(`Could not load ${layerId}: ${err.message}`);
     } finally {
@@ -579,13 +702,27 @@ export default function Home() {
 
     setShowUploadModal(false);
 
-    // Persist dataset for logged-in users (fire-and-forget)
-    if (!isAdd && authProfileRef.current?.loggedIn) {
+    // Persist dataset for logged-in users.
+    // Guard: skip when called from autoReloadDataset (already loaded from blob — no need to re-save).
+    if (!isAdd && isSignedInRef.current && !autoReloadingRef.current) {
+      setPersistMsg({ type: 'saving', text: 'Saving dataset…' });
       fetch('/api/auth/save-dataset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points, originalRows, headers, title }),
-      }).catch(() => {});
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            setPersistMsg({ type: 'error', text: `Save failed (${r.status}): ${e.error || 'unknown error'}` });
+          } else {
+            setPersistMsg({ type: 'saved', text: '✓ Dataset saved to your account' });
+            setTimeout(() => setPersistMsg(null), 4000);
+          }
+        })
+        .catch((err) => {
+          setPersistMsg({ type: 'error', text: `Save failed: ${err.message}` });
+        });
     }
 
     // Auto-select states and cities in the sidebar based on where the uploaded points land
@@ -652,7 +789,11 @@ export default function Home() {
           onStateLayerToggle={handleStateLayerToggle}
           onCityLayerToggle={handleCityLayerToggle}
           onCustomLayer={handleCustomLayer}
-          onUploadClick={(mode) => { uploadModeRef.current = mode; setShowUploadModal(true); }}
+          onUploadClick={(mode) => {
+            if (!isSignedIn) { openSignUp(); return; }
+            uploadModeRef.current = mode;
+            setShowUploadModal(true);
+          }}
           hasData={dataBatches.length > 0}
           dataBatches={dataBatches}
           hiddenBatches={hiddenBatches}
@@ -671,6 +812,7 @@ export default function Home() {
           layerColors={layerColors}
           activeChoroLayer={activeChoroLayer}
           onChoroLayerSelect={handleChoroLayerSelect}
+          authProfile={authProfile}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
@@ -678,23 +820,64 @@ export default function Home() {
           {processingStatus && <ProcessingBar status={processingStatus} />}
           {clerkLoaded && (
             <div style={{
-              position: 'absolute', top: 12, right: 12, zIndex: 10,
-              display: 'flex', alignItems: 'center', gap: 8,
+              position: 'absolute', top: 12, left: 12, zIndex: 10,
+              display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start',
             }}>
               {isSignedIn ? (
-                <UserButton afterSignOutUrl="/" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <UserButton afterSignOutUrl="/" />
+                  {authProfile?.personName && (
+                    <span style={{
+                      fontSize: 13, fontWeight: 600, color: '#1c3557',
+                      fontFamily: "'Open Sans', sans-serif",
+                      background: 'rgba(255,255,255,0.9)',
+                      padding: '2px 8px', borderRadius: 20,
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+                    }}>
+                      {authProfile.personName.split(' ')[0]}
+                    </span>
+                  )}
+                  {authProfile?.tier && (
+                    <span style={{
+                      fontSize: 11, fontWeight: 700,
+                      fontFamily: "'Open Sans', sans-serif",
+                      padding: '2px 8px', borderRadius: 20,
+                      background: authProfile.tier === 'enterprise' ? '#1c3557'
+                               : authProfile.tier === 'pro' ? '#e63947'
+                               : '#dde3ea',
+                      color: authProfile.tier === 'free' ? '#555' : '#fff',
+                      textTransform: 'uppercase', letterSpacing: '0.04em',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+                    }}>
+                      {authProfile.tier}
+                    </span>
+                  )}
+                </div>
               ) : (
-                <SignInButton mode="modal">
-                  <button style={{
-                    background: '#1c3557', color: '#fff', border: 'none',
-                    borderRadius: 6, padding: '6px 14px', fontSize: 12,
-                    fontWeight: 600, fontFamily: "'Open Sans', sans-serif",
-                    cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                  }}>
-                    Sign in
-                  </button>
-                </SignInButton>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <SignUpButton mode="modal">
+                    <button style={{
+                      background: '#e63947', color: '#fff', border: 'none',
+                      borderRadius: 6, padding: '7px 16px', fontSize: 12,
+                      fontWeight: 700, fontFamily: "'Open Sans', sans-serif",
+                      cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                    }}>
+                      Sign up free
+                    </button>
+                  </SignUpButton>
+                  <SignInButton mode="modal">
+                    <button style={{
+                      background: 'transparent', color: '#1c3557', border: 'none',
+                      padding: '7px 4px', fontSize: 12,
+                      fontWeight: 600, fontFamily: "'Open Sans', sans-serif",
+                      cursor: 'pointer', textDecoration: 'underline',
+                    }}>
+                      Sign in
+                    </button>
+                  </SignInButton>
+                </div>
               )}
+              <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
             </div>
           )}
           {showOverflowBanner && (
@@ -704,7 +887,52 @@ export default function Home() {
               onDismiss={() => setShowOverflowBanner(false)}
             />
           )}
-          <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
+          {/* Export / share buttons — sit below Mapbox NavigationControl (top-right) */}
+          <div style={{ position: 'absolute', top: 116, right: 10, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <button
+              onClick={handleSaveImage}
+              title="Save map image"
+              style={mapActionBtn}
+            >
+              {/* Camera icon */}
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 2L4 3.5H1.5C1.22 3.5 1 3.72 1 4V11.5C1 11.78 1.22 12 1.5 12H12.5C12.78 12 13 11.78 13 11.5V4C13 3.72 12.78 3.5 12.5 3.5H10L9 2H5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                <circle cx="7" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.3"/>
+              </svg>
+            </button>
+            <button
+              onClick={handleCopyShareLink}
+              title={shareCopied ? 'Link copied!' : 'Copy share link'}
+              style={{ ...mapActionBtn, color: shareCopied ? '#166534' : '#333', background: shareCopied ? '#dcfce7' : '#fff' }}
+            >
+              {shareCopied ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2 7L5.5 10.5L12 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              ) : (
+                /* Link icon */
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M5.5 8.5L8.5 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <path d="M6.5 10.5L5.5 11.5C4.4 12.6 2.6 12.6 1.5 11.5C0.4 10.4 0.4 8.6 1.5 7.5L2.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <path d="M7.5 3.5L8.5 2.5C9.6 1.4 11.4 1.4 12.5 2.5C13.6 3.6 13.6 5.4 12.5 6.5L11.5 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+              )}
+            </button>
+            {dataBatches.length > 0 && activeLayers.length > 0 && (
+              <button
+                onClick={() => setShowExportDialog(true)}
+                title="Export data"
+                style={mapActionBtn}
+              >
+                {/* Download icon */}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 11h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+              </button>
+            )}
+          </div>
+
           {loadingLayer && (
             <div style={mapLoadingBadge}>
               <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>↻</span>
@@ -754,7 +982,6 @@ export default function Home() {
           onClose={() => setShowUploadModal(false)}
           onUploadComplete={handleUploadComplete}
           tier={tier}
-          onUnlock={handleUnlock}
           onOpenUpgrade={() => { setShowUploadModal(false); setShowUpgradeModal(true); }}
         />
       )}
@@ -768,6 +995,61 @@ export default function Home() {
       )}
 
       {showTour && <TourOverlay onClose={() => setShowTour(false)} />}
+
+      {showExportDialog && (
+        <ExportDialog
+          dataBatches={dataBatches}
+          enrichedPoints={enrichedPoints}
+          activeLayers={activeLayers}
+          tier={tier}
+          onUpgradeClick={() => { setShowExportDialog(false); setShowUpgradeModal(true); }}
+          onClose={() => setShowExportDialog(false)}
+        />
+      )}
+
+      {persistMsg && (
+        <div style={{
+          position: 'fixed', bottom: 36, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 2000,
+          background: persistMsg.type === 'error' ? '#fef2f2'
+                     : persistMsg.type === 'saved' || persistMsg.type === 'restored' ? '#f0fdf4'
+                     : 'rgba(28,53,87,0.92)',
+          color: persistMsg.type === 'error' ? '#b91c1c'
+               : persistMsg.type === 'saved' || persistMsg.type === 'restored' ? '#166534'
+               : '#fff',
+          border: persistMsg.type === 'error' ? '1px solid #fecaca'
+                : persistMsg.type === 'saved' || persistMsg.type === 'restored' ? '1px solid #bbf7d0'
+                : 'none',
+          borderRadius: 8, padding: '9px 18px',
+          fontFamily: "'Open Sans', sans-serif", fontSize: 13, fontWeight: 600,
+          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          whiteSpace: 'nowrap',
+        }}>
+          {persistMsg.text}
+          {persistMsg.type === 'error' && (
+            <button
+              onClick={() => setPersistMsg(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 16, lineHeight: 1, padding: 0 }}
+            >✕</button>
+          )}
+        </div>
+      )}
     </>
   );
+}
+
+export async function getServerSideProps(ctx) {
+  const { userId } = getAuth(ctx.req);
+  if (userId) {
+    try {
+      const { rows } = await sql`SELECT id FROM orgs WHERE clerk_user_id = ${userId}`;
+      if (!rows.length) {
+        return { redirect: { destination: '/onboarding', permanent: false } };
+      }
+    } catch {
+      // DB error — let them through rather than blocking access
+    }
+  }
+  return { props: {} };
 }
