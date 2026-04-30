@@ -86,7 +86,8 @@ function getLayerDisplayName(layerId) {
 export default function ExportDialog({
   dataBatches,
   enrichedPoints,
-  availableLayers,
+  suggestedLayers,   // all layer IDs identified as relevant at upload (from geos)
+  matchedLayers,     // layer IDs that have actual enrichment data in enrichedPoints
   activeLayers,
   tier,
   onUpgradeClick,
@@ -95,12 +96,16 @@ export default function ExportDialog({
   const hasMultipleBatches = dataBatches.length > 1;
   const steps = hasMultipleBatches ? ['format', 'datasets', 'geographies'] : ['format', 'geographies'];
 
+  const matchedSet = new Set(matchedLayers);
+  const activeSet = new Set(activeLayers);
+
   const [stepIdx, setStepIdx] = useState(0);
   const [format, setFormat] = useState('csv');
   const [selectedBatches, setSelectedBatches] = useState(() => new Set(dataBatches.map((b) => b.id)));
-  // Default: active (mapped) layers checked, other matched layers unchecked
-  const activeSet = new Set(activeLayers);
-  const [selectedLayers, setSelectedLayers] = useState(() => new Set(availableLayers.filter((l) => activeSet.has(l))));
+  // Default: matched layers that are currently active get pre-checked
+  const [selectedLayers, setSelectedLayers] = useState(
+    () => new Set(matchedLayers.filter((l) => activeSet.has(l)))
+  );
   const [pdfLoading, setPdfLoading] = useState(false);
 
   const currentStep = steps[stepIdx];
@@ -134,9 +139,10 @@ export default function ExportDialog({
     [enrichedPoints, selectedBatches]
   );
 
+  // Only matched layers can actually be exported
   const selectedLayerList = useMemo(
-    () => availableLayers.filter((l) => selectedLayers.has(l)),
-    [availableLayers, selectedLayers]
+    () => matchedLayers.filter((l) => selectedLayers.has(l)),
+    [matchedLayers, selectedLayers]
   );
 
   const numericFields = useMemo(() => {
@@ -280,21 +286,30 @@ export default function ExportDialog({
           {currentStep === 'geographies' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <p style={bodyHint}>Choose which geographic layers to include in the export.</p>
-              {availableLayers.length === 0 ? (
+              {suggestedLayers.length === 0 ? (
                 <p style={{ fontSize: 12, color: '#9aabb8', fontStyle: 'italic' }}>
                   No geographic layers matched yet. Enable boundary layers from the left panel and your data will be assigned automatically.
                 </p>
-              ) : availableLayers.map((layerId) => (
-                <label key={layerId} style={checkRow}>
-                  <input
-                    type="checkbox"
-                    checked={selectedLayers.has(layerId)}
-                    onChange={() => toggleLayer(layerId)}
-                    style={{ marginRight: 8, accentColor: '#1c3557' }}
-                  />
-                  <span style={checkLabel}>{getLayerDisplayName(layerId)}</span>
-                </label>
-              ))}
+              ) : suggestedLayers.map((layerId) => {
+                const isLoaded = matchedSet.has(layerId);
+                return (
+                  <label
+                    key={layerId}
+                    style={{ ...checkRow, opacity: isLoaded ? 1 : 0.45, cursor: isLoaded ? 'pointer' : 'default' }}
+                    title={isLoaded ? undefined : 'Enable this layer in the sidebar to include it in the export'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedLayers.has(layerId)}
+                      onChange={() => isLoaded && toggleLayer(layerId)}
+                      disabled={!isLoaded}
+                      style={{ marginRight: 8, accentColor: '#1c3557' }}
+                    />
+                    <span style={checkLabel}>{getLayerDisplayName(layerId)}</span>
+                    {!isLoaded && <span style={{ fontSize: 10, color: '#9aabb8', marginLeft: 6, fontStyle: 'italic' }}>not loaded</span>}
+                  </label>
+                );
+              })}
             </div>
           )}
         </div>

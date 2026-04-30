@@ -146,6 +146,7 @@ export default function Home() {
   const [activeChoroLayer, setActiveChoroLayer] = useState(null);
   const [savedPolicies, setSavedPolicies] = useState([]);
   const [persistMsg, setPersistMsg] = useState(null); // { type: 'saving'|'saved'|'restored'|'error', text: string }
+  const [suggestedLayerIds, setSuggestedLayerIds] = useState([]);
 
   // Read localStorage after mount to avoid SSR/client hydration mismatch
   useEffect(() => {
@@ -665,6 +666,24 @@ export default function Home() {
     setLayerColors((prev) => ({ ...prev, [layerId]: color }));
   }, []);
 
+  function getLayerIdsFromGeos(geos) {
+    if (!geos) return [];
+    const ids = [];
+    if (geos.congressional) ids.push('congressional');
+    if (geos['us-senate']) ids.push('us-senate');
+    for (const key of ['counties', 'county-subdivisions', 'zcta', 'state-senate', 'state-house',
+      'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
+      if (geos[key]?.length > 0) ids.push(key);
+    }
+    for (const slug of (geos.cities ?? [])) {
+      ids.push(`council-${slug}`);
+      for (const { slug: extraSlug } of CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []) {
+        ids.push(`council-${extraSlug}`);
+      }
+    }
+    return ids;
+  }
+
   const handleUploadComplete = useCallback((points, originalRows, headers, geos, title, overflow) => {
     const isAdd = uploadModeRef.current === 'add';
 
@@ -744,6 +763,8 @@ export default function Home() {
         setGeoSuggestions({ states: detectedStates, cities: detectedCities });
       }
     }
+
+    if (!isAdd && geos) setSuggestedLayerIds(getLayerIdsFromGeos(geos));
 
     if (!geos) return;
     // Only load boundary layers on first upload or overwrite (not on add)
@@ -1009,7 +1030,8 @@ export default function Home() {
         <ExportDialog
           dataBatches={dataBatches}
           enrichedPoints={enrichedPoints}
-          availableLayers={matchedLayerIds}
+          suggestedLayers={suggestedLayerIds.length > 0 ? suggestedLayerIds : matchedLayerIds}
+          matchedLayers={matchedLayerIds}
           activeLayers={activeLayers}
           tier={tier}
           onUpgradeClick={() => { setShowExportDialog(false); setShowUpgradeModal(true); }}
