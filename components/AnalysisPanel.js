@@ -97,14 +97,17 @@ export default function AnalysisPanel({
   savedPolicies = [],
   onSaveScan,
   onDeletePolicyScan,
+  multiSelectMode = false,
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterAdding, setFilterAdding] = useState(null);
   const [officials, setOfficials] = useState(null);
   const [policyDrawer, setPolicyDrawer] = useState(null);
-  const [panelHeight, setPanelHeight] = useState(310);
+  const [panelHeight, setPanelHeight] = useState(() =>
+    typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.35) : 310
+  );
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
 
@@ -181,6 +184,12 @@ export default function AnalysisPanel({
       .catch(() => setOfficials({}));
   }, [activeChoroLayer, officials]);
 
+  // Collapse when no layers active, expand when a layer is first selected
+  useEffect(() => {
+    if (activeLayers.length === 0) setOpen(false);
+    else setOpen(true);
+  }, [activeLayers.length]);
+
   // Reset checked districts when switching layers
   useEffect(() => {
     setCheckedDistricts(new Set());
@@ -243,13 +252,13 @@ export default function AnalysisPanel({
       {/* Header */}
       <div style={panelHeader}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {activeChoroLayer && (
+          {multiSelectMode && activeChoroLayer && (
             <button
               style={backBtn}
               onClick={() => onChoroLayerSelect?.(activeChoroLayer)}
-              title="Back to all layers"
+              title="Back to all geographies"
             >
-              ← All layers
+              ← All geographies
             </button>
           )}
           <span style={panelTitle}>{headerTitle}</span>
@@ -309,7 +318,7 @@ export default function AnalysisPanel({
 
           {activeLayers.length === 0 && (
             <div style={emptyState}>
-              <p style={emptyText}>Enable a boundary layer in the sidebar to analyze your data.</p>
+              <p style={emptyText}>Enable a boundary geography in the sidebar to analyze your data.</p>
             </div>
           )}
 
@@ -578,7 +587,7 @@ const downloadBarClear = {
   background: 'none', border: 'none', fontSize: 11, color: '#92400e',
   cursor: 'pointer', textDecoration: 'underline',
 };
-const tableWrap = { flex: 1, overflowY: 'auto', padding: '0 12px' };
+const tableWrap = { flex: 1, overflowY: 'auto', padding: '0 12px 16px' };
 const table = { width: '100%', borderCollapse: 'collapse', fontSize: 12 };
 const th = {
   padding: '5px 8px', background: '#f0f4f8', borderBottom: '1px solid #dde3ea',

@@ -287,7 +287,12 @@ export default function Home() {
 
     // Always restore all layers first, then remove any existing labels
     mapRef.current?.showAllLayers();
-    if (activeChoroLayer) mapRef.current?.removeCountLabels(activeChoroLayer);
+    if (activeChoroLayer) {
+      mapRef.current?.removeCountLabels(activeChoroLayer);
+      mapRef.current?.clearBoundaryFilter(activeChoroLayer);
+    }
+    mapRef.current?.clearPointFilter();
+    setSelectedDistrict(null);
 
     if (isDeselect) {
       setActiveChoroLayer(null);
@@ -561,10 +566,25 @@ export default function Home() {
     return featureBbox(bestFeature);
   }
 
+  function getLayerMeta(layerId) {
+    if (LAYER_CONFIG[layerId]) return { districtField: LAYER_CONFIG[layerId].districtField, stateField: LAYER_CONFIG[layerId].stateField };
+    if (layerId.startsWith('council-')) {
+      const slug = layerId.slice('council-'.length);
+      const city = CITY_COUNCIL_REGISTRY[slug];
+      if (city) return { districtField: city.districtField ?? 'NAME', stateField: null };
+      for (const c of Object.values(CITY_COUNCIL_REGISTRY)) {
+        const extra = (c.extraLayers || []).find((e) => e.slug === slug);
+        if (extra) return { districtField: extra.districtField ?? c.districtField ?? 'NAME', stateField: null };
+      }
+    }
+    return { districtField: 'NAME', stateField: null };
+  }
+
   function handleDistrictSelect(layerId, districtName) {
     if (selectedDistrict?.layerId === layerId && selectedDistrict?.districtName === districtName) {
       setSelectedDistrict(null);
       mapRef.current?.clearPointFilter();
+      mapRef.current?.clearBoundaryFilter(layerId);
       const allPoints = dataBatches.flatMap((b) => b.points);
       if (allPoints.length > 0) {
         const lngs = allPoints.map((p) => p.lng);
@@ -575,12 +595,13 @@ export default function Home() {
       const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
       setSelectedDistrict({ layerId, districtName });
       mapRef.current?.filterPoints(matching.map((p) => p._globalIndex));
+      const { districtField, stateField } = getLayerMeta(layerId);
+      mapRef.current?.filterBoundaryToDistrict(layerId, districtField, districtName, stateField);
       // Pass matched points so getDistrictBbox can disambiguate same-named districts across states
       const bbox = getDistrictBbox(layerId, districtName, matching);
       if (bbox) {
         mapRef.current?.fitBounds(bbox);
       } else if (matching.length > 0) {
-        // Fall back to the bounding box of the matched points themselves
         const lngs = matching.map((p) => p.lng);
         const lats = matching.map((p) => p.lat);
         mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);

@@ -37,7 +37,7 @@ function buildPopupHTML(properties) {
   </div>`;
 }
 
-const MapView = forwardRef(function MapView(_, ref) {
+const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const addedLayers = useRef(new Set());
@@ -71,6 +71,11 @@ const MapView = forwardRef(function MapView(_, ref) {
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
 
+    map.on('moveend', () => {
+      const c = map.getCenter();
+      onMoveEnd?.({ center: { lng: c.lng, lat: c.lat }, zoom: map.getZoom() });
+    });
+
     // Single global boundary hover handler — queries all active fill layers
     map.on('mousemove', (e) => {
       const meta = layerMetaRef.current;
@@ -90,14 +95,14 @@ const MapView = forwardRef(function MapView(_, ref) {
         if (!info) continue;
         const p = feat.properties;
         const choro = choroDataRef.current;
+        const districtName = String(p[choro?.districtField ?? 'NAME'] ?? p.NAMELSAD ?? p.NAME ?? p.name ?? p.DISTRICT ?? p.GEOID ?? '');
         if (choro && choro.layerId === layerId) {
-          const key = String(p[choro.districtField] ?? p.NAME ?? p.NAMELSAD ?? '');
-          const count = choro.plainCounts[key] ?? 0;
+          const count = choro.plainCounts[districtName] ?? 0;
           const pct = choro.total > 0 ? ((count / choro.total) * 100).toFixed(1) : '0.0';
-          lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; <strong>${count.toLocaleString()}</strong> pts &middot; ${pct}%</div>`);
+          const namePart = districtName ? `<strong>${districtName}</strong> &middot; ` : '';
+          lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; ${namePart}${count.toLocaleString()} pts &middot; ${pct}%</div>`);
         } else {
-          const name = p.NAMELSAD || p.NAME || p.name || p.DISTRICT || p.GEOID || '';
-          if (name) lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; ${name}</div>`);
+          if (districtName) lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; ${districtName}</div>`);
         }
       }
 
@@ -236,7 +241,17 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map) return;
       const [west, south, east, north] = bbox;
-      map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 14 });
+      const doFit = () => map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 14 });
+      if (map.isStyleLoaded()) doFit();
+      else map.once('load', doFit);
+    },
+
+    flyTo({ center, zoom }) {
+      const map = mapRef.current;
+      if (!map) return;
+      const doFly = () => map.flyTo({ center: [center.lng, center.lat], zoom });
+      if (map.isStyleLoaded()) doFly();
+      else map.once('load', doFly);
     },
 
     filterPoints(indices) {
@@ -249,6 +264,31 @@ const MapView = forwardRef(function MapView(_, ref) {
       const map = mapRef.current;
       if (!map?.getLayer('uploaded-points')) return;
       map.setFilter('uploaded-points', null);
+    },
+
+    filterBoundaryToDistrict(layerId, districtField, districtName, stateField) {
+      const map = mapRef.current;
+      if (!map) return;
+      let filter;
+      if (stateField && districtName.includes(' – ')) {
+        const abbr = districtName.split(' – ')[0];
+        const dName = districtName.split(' – ').slice(1).join(' – ');
+        const fips = ABBR_TO_FIPS[abbr];
+        filter = fips
+          ? ['all', ['==', ['get', stateField], fips], ['==', ['to-string', ['get', districtField]], dName]]
+          : ['==', ['to-string', ['get', districtField]], dName];
+      } else {
+        filter = ['==', ['to-string', ['get', districtField]], String(districtName)];
+      }
+      if (map.getLayer(`${layerId}-fill`)) map.setFilter(`${layerId}-fill`, filter);
+      if (map.getLayer(`${layerId}-line`)) map.setFilter(`${layerId}-line`, filter);
+    },
+
+    clearBoundaryFilter(layerId) {
+      const map = mapRef.current;
+      if (!map) return;
+      if (map.getLayer(`${layerId}-fill`)) map.setFilter(`${layerId}-fill`, null);
+      if (map.getLayer(`${layerId}-line`)) map.setFilter(`${layerId}-line`, null);
     },
 
     isolateLayer(layerId) {

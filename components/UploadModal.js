@@ -9,11 +9,8 @@ import { getRowLimit, TIERS } from '../lib/tierConfig';
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
 const ROLE_LABELS = { street: 'Street / Address', city: 'City', county: 'County', state: 'State', zip: 'ZIP / Postal' };
 
-export default function UploadModal({ onClose, onUploadComplete, tier = 'free', onUnlock, onOpenUpgrade }) {
+export default function UploadModal({ onClose, onUploadComplete, tier = 'free', onOpenUpgrade }) {
   const [step, setStep] = useState('idle');       // idle | review | geocoding | complete
-  const [showUnlockInput, setShowUnlockInput] = useState(false);
-  const [unlockInput, setUnlockInput] = useState('');
-  const [unlockError, setUnlockError] = useState(false);
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [audit, setAudit] = useState(null);
@@ -39,22 +36,10 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
 
   const fileRef = useRef();
 
-  async function handleUnlockSubmit(e) {
-    e.preventDefault();
-    setUnlockError(false);
-    const res = await fetch('/api/unlock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: unlockInput }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      onUnlock?.('enterprise');
-      setShowUnlockInput(false);
-      setUnlockInput('');
-    } else {
-      setUnlockError(true);
-    }
+  function getLimitWarning(rowsSkipped, limit) {
+    const tierName = tier === 'free_anonymous' ? 'Guest' : tier === 'free' ? 'Free account' : (TIERS[tier]?.label ?? 'Current plan');
+    const cta = tier === 'free_anonymous' ? 'Sign in free for higher limits.' : 'Upgrade to analyze all.';
+    return `⚠ ${tierName} limit is ${limit.toLocaleString()} rows. The remaining ${rowsSkipped.toLocaleString()} rows will be skipped — ${cta}`;
   }
 
   function parseFile(file) {
@@ -254,48 +239,40 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
         {step === 'idle' && (
           <div style={body}>
             <p style={hint}>Upload a CSV or Excel file with addresses or coordinates.</p>
-            {tier !== 'free' ? (
+            {(tier === 'pro' || tier === 'enterprise') ? (
               <div style={{ ...tierBox, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
-                <p style={{ ...tierBoxTitle, color: '#166534' }}>🔓 {TIERS[tier]?.label ?? 'Unlimited'} — unlimited access</p>
+                <p style={{ ...tierBoxTitle, color: '#166534' }}>🔓 {TIERS[tier].label} — unlimited access</p>
+              </div>
+            ) : tier === 'free' ? (
+              <div style={tierBox}>
+                <p style={{ ...tierBoxTitle, margin: 0 }}>Free account limits</p>
+                <div style={tierBoxRow}>
+                  <span>Coordinate data (lat / lng columns)</span>
+                  <span style={tierBoxValue}>{TIERS.free.maxLatLon.toLocaleString()} rows</span>
+                </div>
+                <div style={tierBoxRow}>
+                  <span>Address geocoding</span>
+                  <span style={tierBoxValue}>{TIERS.free.maxAddresses.toLocaleString()} rows</span>
+                </div>
+                <button style={tierUpgradeLink} onClick={() => onOpenUpgrade?.()}>
+                  Need more? Upgrade →
+                </button>
               </div>
             ) : (
+              /* free_anonymous */
               <div style={tierBox}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <p style={{ ...tierBoxTitle, margin: 0 }}>Free tier limits</p>
-                  <button
-                    style={lockIconBtn}
-                    onClick={() => { setShowUnlockInput((v) => !v); setUnlockError(false); setUnlockInput(''); }}
-                    title="Unlock"
-                  >🔒</button>
+                <p style={{ ...tierBoxTitle, margin: 0 }}>Guest limits</p>
+                <div style={tierBoxRow}>
+                  <span>Coordinate data (lat / lng columns)</span>
+                  <span style={tierBoxValue}>{TIERS.free_anonymous.maxLatLon.toLocaleString()} rows</span>
                 </div>
-                {showUnlockInput && (
-                  <form onSubmit={handleUnlockSubmit} style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
-                    <input
-                      autoFocus
-                      type="password"
-                      value={unlockInput}
-                      onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(false); }}
-                      style={{ ...unlockField, borderColor: unlockError ? '#fca5a5' : '#c5d0da' }}
-                      placeholder="Access code"
-                    />
-                    <button type="submit" style={unlockSubmitBtn}>Unlock</button>
-                  </form>
-                )}
-                {!showUnlockInput && (
-                  <>
-                    <div style={tierBoxRow}>
-                      <span>Coordinate data (lat / lng columns)</span>
-                      <span style={tierBoxValue}>{TIERS.free.maxLatLon.toLocaleString()} rows</span>
-                    </div>
-                    <div style={tierBoxRow}>
-                      <span>Address geocoding</span>
-                      <span style={tierBoxValue}>{TIERS.free.maxAddresses.toLocaleString()} rows</span>
-                    </div>
-                    <button style={tierUpgradeLink} onClick={() => onOpenUpgrade?.()}>
-                      Need more? Upgrade →
-                    </button>
-                  </>
-                )}
+                <div style={tierBoxRow}>
+                  <span>Address geocoding</span>
+                  <span style={tierBoxValue}>{TIERS.free_anonymous.maxAddresses.toLocaleString()} rows</span>
+                </div>
+                <button style={tierUpgradeLink} onClick={() => onOpenUpgrade?.()}>
+                  Sign in free for higher limits →
+                </button>
               </div>
             )}
             <input
@@ -342,9 +319,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                 {rows.length.toLocaleString()} rows{willSlice && ` · First ${limit.toLocaleString()} will be analyzed`}
               </p>
               {willSlice && (
-                <p style={limitWarning}>
-                  ⚠ Free tier limit is {limit.toLocaleString()} rows. The remaining {(rows.length - limit).toLocaleString()} rows will be skipped — upgrade to analyze all.
-                </p>
+                <p style={limitWarning}>{getLimitWarning(rows.length - limit, limit)}</p>
               )}
               {error && <p style={errorStyle}>{error}</p>}
 
@@ -390,9 +365,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                 {rows.length.toLocaleString()} rows · ~{estSeconds}s to geocode{willSlice && ` · First ${limit.toLocaleString()} will be geocoded`}
               </p>
               {willSlice && (
-                <p style={limitWarning}>
-                  ⚠ Free tier limit is {limit.toLocaleString()} rows. The remaining {(rows.length - limit).toLocaleString()} rows will be skipped — upgrade to geocode all.
-                </p>
+                <p style={limitWarning}>{getLimitWarning(rows.length - limit, limit)}</p>
               )}
               {error && <p style={errorStyle}>{error}</p>}
 
@@ -494,9 +467,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                     {willSlice && ` · First ${limit.toLocaleString()} will be analyzed`}
                   </p>
                   {willSlice && (
-                    <p style={limitWarning}>
-                      ⚠ Free tier limit is {limit.toLocaleString()} rows. The remaining {(rows.length - limit).toLocaleString()} rows will be skipped — upgrade to analyze all.
-                    </p>
+                    <p style={limitWarning}>{getLimitWarning(rows.length - limit, limit)}</p>
                   )}
                   {error && <p style={errorStyle}>{error}</p>}
                   <button style={{ ...primaryBtn, marginTop: 6 }} onClick={handleConfirm}>
@@ -561,7 +532,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
             </div>
 
             <p style={{ ...hint, color: '#7a8fa6', fontSize: 12 }}>
-              Your data will appear on the map. Enable boundary layers from the panel on the left to begin analysis.
+              Your data will appear on the map. Enable boundary geographies from the panel on the left to begin analysis.
             </p>
 
             <button style={primaryBtn} onClick={handleMapData}>Map my data →</button>
@@ -631,18 +602,6 @@ const primaryBtn = {
 const linkBtn = {
   background: 'none', border: 'none', fontSize: 12, color: 'var(--mid-blue)',
   cursor: 'pointer', padding: 0, textDecoration: 'underline', alignSelf: 'flex-start',
-};
-const lockIconBtn = {
-  background: 'none', border: 'none', cursor: 'pointer',
-  fontSize: 13, padding: 0, lineHeight: 1, opacity: 0.5,
-};
-const unlockField = {
-  flex: 1, padding: '4px 8px', fontSize: 12,
-  border: '1px solid #c5d0da', borderRadius: 3,
-};
-const unlockSubmitBtn = {
-  padding: '4px 10px', background: '#1c3557', color: '#fff',
-  border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 600, cursor: 'pointer',
 };
 const progressTrack = { height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden', marginTop: 8 };
 const progressFill = { height: '100%', background: 'var(--red)', borderRadius: 4, transition: 'width 0.3s ease' };

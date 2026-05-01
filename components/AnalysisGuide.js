@@ -14,12 +14,12 @@ const STEPS = [
   {
     target: 'layer-tabs',
     title: 'Layer Tabs',
-    body: 'Switch between Overview (all active boundary layers at a glance) and individual tabs to drill into one layer\'s full district breakdown.',
+    body: 'Switch between Overview (all active boundary geographies at a glance) and individual tabs to drill into one geography\'s full district breakdown.',
   },
   {
     target: 'overview-cards',
     title: 'Overview Cards',
-    body: 'Each card summarizes one boundary layer — how many districts contain your data points, plus the top 3 districts by count. Click "View details →" to open that layer\'s full table.',
+    body: 'Each card summarizes one boundary geography — how many districts contain your data points, plus the top 3 districts by count. Click "View details →" to open that geography\'s full table.',
   },
   {
     target: 'district-table',

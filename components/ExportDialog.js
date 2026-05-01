@@ -77,10 +77,16 @@ function getLayerDisplayName(layerId) {
   if (layerId.startsWith('council-')) {
     const slug = layerId.replace('council-', '');
     const city = CITY_COUNCIL_REGISTRY[slug];
-    return city ? `${city.cityName} Council Districts` : `Council Districts (${slug})`;
+    return city ? `${city.name} Council Districts` : `Council Districts (${slug})`;
   }
   if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
   return layerId;
+}
+
+function getGeoScope(layerId) {
+  if (['congressional', 'us-senate', 'tribal-lands', 'urban-areas'].includes(layerId)) return 'national';
+  if (layerId.startsWith('council-') || layerId.startsWith('custom-')) return 'local';
+  return 'state';
 }
 
 export default function ExportDialog({
@@ -284,32 +290,49 @@ export default function ExportDialog({
           )}
 
           {currentStep === 'geographies' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <p style={bodyHint}>Choose which geographic layers to include in the export.</p>
+            <div>
+              <p style={bodyHint}>Choose which geographies to include in the export.</p>
               {suggestedLayers.length === 0 ? (
                 <p style={{ fontSize: 12, color: '#9aabb8', fontStyle: 'italic' }}>
-                  No geographic layers matched yet. Enable boundary layers from the left panel and your data will be assigned automatically.
+                  No geographies matched yet. Enable boundary geographies from the left panel and your data will be assigned automatically.
                 </p>
-              ) : suggestedLayers.map((layerId) => {
-                const isLoaded = matchedSet.has(layerId);
-                return (
-                  <label
-                    key={layerId}
-                    style={{ ...checkRow, opacity: isLoaded ? 1 : 0.45, cursor: isLoaded ? 'pointer' : 'default' }}
-                    title={isLoaded ? undefined : 'Enable this layer in the sidebar to include it in the export'}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedLayers.has(layerId)}
-                      onChange={() => isLoaded && toggleLayer(layerId)}
-                      disabled={!isLoaded}
-                      style={{ marginRight: 8, accentColor: '#1c3557' }}
-                    />
-                    <span style={checkLabel}>{getLayerDisplayName(layerId)}</span>
-                    {!isLoaded && <span style={{ fontSize: 10, color: '#9aabb8', marginLeft: 6, fontStyle: 'italic' }}>not loaded</span>}
-                  </label>
-                );
-              })}
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                  {[
+                    { scope: 'national', label: 'National' },
+                    { scope: 'state',    label: 'State' },
+                    { scope: 'local',    label: 'Local' },
+                  ].map(({ scope, label }) => {
+                    const colLayers = suggestedLayers.filter((id) => getGeoScope(id) === scope);
+                    return (
+                      <div key={scope}>
+                        <div style={geoColHeader}>{label}</div>
+                        {colLayers.length === 0 ? (
+                          <p style={geoColEmpty}>—</p>
+                        ) : colLayers.map((layerId) => {
+                          const isLoaded = matchedSet.has(layerId);
+                          return (
+                            <label
+                              key={layerId}
+                              style={{ ...geoCheckRow, opacity: isLoaded ? 1 : 0.4, cursor: isLoaded ? 'pointer' : 'default' }}
+                              title={isLoaded ? undefined : 'Enable this geography in the sidebar first'}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedLayers.has(layerId)}
+                                onChange={() => isLoaded && toggleLayer(layerId)}
+                                disabled={!isLoaded}
+                                style={{ marginRight: 6, accentColor: '#1c3557', flexShrink: 0 }}
+                              />
+                              <span style={geoCheckLabel}>{getLayerDisplayName(layerId)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -345,8 +368,8 @@ const backdrop = {
 const modal = {
   background: '#fff',
   borderRadius: 10,
-  width: 480,
-  maxWidth: '92vw',
+  width: 620,
+  maxWidth: '96vw',
   boxShadow: '0 8px 48px rgba(0,0,0,0.22)',
   display: 'flex', flexDirection: 'column',
   overflow: 'hidden',
@@ -406,3 +429,14 @@ const primaryBtn = {
   border: 'none', borderRadius: 5,
   padding: '7px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
 };
+const geoColHeader = {
+  fontFamily: 'Poppins, sans-serif', fontWeight: 700, fontSize: 12,
+  color: '#1c3557', marginBottom: 8, paddingBottom: 6,
+  borderBottom: '2px solid #1c3557',
+};
+const geoColEmpty = { fontSize: 12, color: '#c5d0da', margin: '6px 0' };
+const geoCheckRow = {
+  display: 'flex', alignItems: 'flex-start', gap: 0,
+  padding: '4px 0', cursor: 'pointer', fontSize: 12,
+};
+const geoCheckLabel = { fontSize: 12, color: '#1c3557', lineHeight: 1.4 };

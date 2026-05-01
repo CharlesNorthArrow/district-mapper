@@ -150,7 +150,7 @@ export default function ExportControls({
         </button>
       )}
       {disabled && (
-        <span style={hintStyle}>Enable at least one boundary layer to export</span>
+        <span style={hintStyle}>Enable at least one boundary geography to export</span>
       )}
     </div>
   );

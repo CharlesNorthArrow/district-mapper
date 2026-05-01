@@ -5,7 +5,7 @@ const PRO_FEATURES = [
   'Unlimited lat/lon rows',
   'PDF report export',
   'AI plain language analysis',
-  'All boundary layers',
+  'All boundary geographies',
   'City council districts (16 cities)',
 ];
 
