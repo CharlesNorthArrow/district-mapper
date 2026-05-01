@@ -276,7 +276,7 @@ export default function Home() {
     // For label display, strip state prefix so it matches GeoJSON feature names
     const plainCounts = {};
     for (const [name, count] of Object.entries(counts)) {
-      const plain = name.includes(' – ') ? name.split(' – ').slice(1).join(' – ') : name;
+      const plain = name.replace(/^.+? [–-] /, '');
       plainCounts[plain] = (plainCounts[plain] || 0) + count;
     }
     return { counts, plainCounts, districtField, stateField, color };
@@ -325,8 +325,37 @@ export default function Home() {
     try { localStorage.setItem('dm_last_extent', JSON.stringify({ center, zoom })); } catch {}
   }
 
+  const choroMax = useMemo(() => {
+    if (!activeChoroLayer || enrichedPoints.length === 0) return 0;
+    const counts = {};
+    for (const p of enrichedPoints) {
+      if (p[activeChoroLayer] != null) counts[p[activeChoroLayer]] = (counts[p[activeChoroLayer]] || 0) + 1;
+    }
+    return Math.max(...Object.values(counts), 0);
+  }, [enrichedPoints, activeChoroLayer]);
+
   function handleSaveImage() {
-    mapRef.current?.captureImage();
+    const layerDisplayNames = Object.fromEntries(
+      activeLayers.map((id) => {
+        if (LAYER_CONFIG[id]) return [id, LAYER_CONFIG[id].displayName];
+        if (id.startsWith('council-')) {
+          const slug = id.slice('council-'.length);
+          const city = CITY_COUNCIL_REGISTRY[slug];
+          return [id, city?.displayName || (city ? `${city.name} Council` : slug)];
+        }
+        if (id.startsWith('custom-')) return [id, id.slice('custom-'.length).replace(/-+/g, ' ')];
+        return [id, id];
+      })
+    );
+    mapRef.current?.captureImage({
+      activeLayers,
+      layerColors,
+      dataBatches,
+      choroLayer: activeChoroLayer,
+      choroColor: activeChoroLayer ? (layerColors[activeChoroLayer] || DEFAULT_LAYER_COLOR) : null,
+      choroMax,
+      layerDisplayNames,
+    });
   }
 
   function handleCopyShareLink() {
@@ -406,7 +435,33 @@ export default function Home() {
     }
   }, [activeLayers]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { tierRef.current = tier; }, [tier]);
-  useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
+  useEffect(() => {
+    // Detect sign-out: if we were signed in and are now signed out, wipe all session data
+    if (clerkLoaded && isSignedInRef.current && !isSignedIn) {
+      // Clear React state
+      setDataBatches([]);
+      setEnrichedPoints([]);
+      setActiveLayers([]);
+      setLayerGeojson({});
+      setLayerColors({});
+      setActiveChoroLayer(null);
+      setSelectedDistrict(null);
+      setHiddenBatches(new Set());
+      setAuthProfile(null);
+      // Clear map visuals
+      for (const layerId of activeLayersRef.current) {
+        mapRef.current?.removeBoundaryLayer(layerId);
+      }
+      mapRef.current?.setPointLayer([], {});
+      // Reset refs
+      authProfileRef.current = null;
+      activeLayersRef.current = [];
+      hiddenBatchesRef.current = new Set();
+      layerFipsRef.current = {};
+      customColorIndexRef.current = 0;
+    }
+    isSignedInRef.current = !!isSignedIn;
+  }, [clerkLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch auth profile once Clerk has loaded; sync tier and auto-reload saved dataset if logged in
   useEffect(() => {
@@ -535,7 +590,7 @@ export default function Home() {
     const field = config?.districtField ?? cityConfig?.districtField;
 
     // District names for multi-state layers are prefixed "IL – 1"; strip to match feature properties
-    const rawName = districtName.includes(' – ') ? districtName.split(' – ')[1] : districtName;
+    const rawName = districtName.replace(/^.+? [–-] /, '');
 
     const candidates = geojson.features.filter((f) => {
       const name = field
@@ -1019,7 +1074,14 @@ export default function Home() {
                   </SignInButton>
                 </div>
               )}
-              <Legend activeLayers={activeLayers} layerColors={layerColors} dataBatches={dataBatches} />
+              <Legend
+                activeLayers={activeLayers}
+                layerColors={layerColors}
+                dataBatches={dataBatches}
+                choroLayer={activeChoroLayer}
+                choroColor={activeChoroLayer ? (layerColors[activeChoroLayer] || DEFAULT_LAYER_COLOR) : null}
+                choroMax={choroMax}
+              />
             </div>
           )}
           {showOverflowBanner && (
