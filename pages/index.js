@@ -652,28 +652,13 @@ export default function Home() {
       mapRef.current?.filterPoints(matching.map((p) => p._globalIndex));
       const { districtField, stateField } = getLayerMeta(layerId);
       mapRef.current?.filterBoundaryToDistrict(layerId, districtField, districtName, stateField);
-      // Pass matched points so getDistrictBbox can disambiguate same-named districts across states
-      const bbox = getDistrictBbox(layerId, districtName, matching);
-      if (bbox) {
-        mapRef.current?.fitBounds(bbox);
-      } else if (matching.length > 0) {
-        const lngs = matching.map((p) => p.lng);
-        const lats = matching.map((p) => p.lat);
-        mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
-      }
+      mapRef.current?.fitToDistrict(layerId, districtField, districtName, stateField);
     }
   }
 
   function handleDistrictZoom(layerId, districtName) {
-    const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
-    const bbox = getDistrictBbox(layerId, districtName, matching);
-    if (bbox) {
-      mapRef.current?.fitBounds(bbox);
-    } else if (matching.length > 0) {
-      const lngs = matching.map((p) => p.lng);
-      const lats = matching.map((p) => p.lat);
-      mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
-    }
+    const { districtField, stateField } = getLayerMeta(layerId);
+    mapRef.current?.fitToDistrict(layerId, districtField, districtName, stateField);
   }
 
   async function pinAndAssignDistricts(lat, lng, label) {

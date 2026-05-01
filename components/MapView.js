@@ -304,6 +304,36 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       if (map.getLayer(`${layerId}-line`)) map.setFilter(`${layerId}-line`, filter);
     },
 
+    fitToDistrict(layerId, districtField, districtName, stateField) {
+      const map = mapRef.current;
+      if (!map || !map.getSource(layerId)) return;
+      let filter;
+      const _fm = stateField && districtName.match(/^(.+?) [–-] (.+)$/);
+      if (_fm) {
+        const abbr = _fm[1];
+        const dName = _fm[2];
+        const fips = ABBR_TO_FIPS[abbr];
+        filter = fips
+          ? ['all', ['==', ['get', stateField], fips], ['==', ['to-string', ['get', districtField]], dName]]
+          : ['==', ['to-string', ['get', districtField]], dName];
+      } else {
+        filter = ['==', ['to-string', ['get', districtField]], String(districtName)];
+      }
+      const features = map.querySourceFeatures(layerId, { filter });
+      if (!features.length) return;
+      const coords = [];
+      for (const feat of features) {
+        const geom = feat.geometry;
+        if (!geom) continue;
+        if (geom.type === 'Polygon') geom.coordinates.forEach((r) => coords.push(...r));
+        else if (geom.type === 'MultiPolygon') geom.coordinates.forEach((p) => p.forEach((r) => coords.push(...r)));
+      }
+      if (!coords.length) return;
+      const lngs = coords.map((c) => c[0]);
+      const lats = coords.map((c) => c[1]);
+      map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 60, maxZoom: 14 });
+    },
+
     clearBoundaryFilter(layerId) {
       const map = mapRef.current;
       if (!map) return;
