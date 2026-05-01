@@ -110,6 +110,7 @@ export default function AnalysisPanel({
   );
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
+  const autoSizedForRef = useRef(null);
 
   function handleDragStart(e) {
     e.preventDefault();
@@ -194,6 +195,23 @@ export default function AnalysisPanel({
   useEffect(() => {
     setCheckedDistricts(new Set());
   }, [activeChoroLayer]);
+
+  // Reset auto-size guard whenever the active layer changes
+  useEffect(() => {
+    autoSizedForRef.current = null;
+  }, [activeChoroLayer]);
+
+  // Auto-size panel height to fit the breakdown table, capped at 1/3 of viewport
+  useEffect(() => {
+    if (!activeChoroLayer || rows.length === 0) return;
+    if (autoSizedForRef.current === activeChoroLayer) return;
+    autoSizedForRef.current = activeChoroLayer;
+    const ROW_PX = 28;
+    const OVERHEAD_PX = 110; // drag handle + panel header + thead + bottom padding
+    const rowCount = rows.length + (unmatchedCount > 0 ? 1 : 0);
+    const ideal = OVERHEAD_PX + rowCount * ROW_PX;
+    setPanelHeight(Math.min(ideal, Math.round(window.innerHeight / 3)));
+  }, [activeChoroLayer, rows.length, unmatchedCount]);
 
   function getDisplayName(layerId) {
     if (!layerId) return '';
@@ -401,9 +419,9 @@ export default function AnalysisPanel({
                       <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
                         <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
                       </th>
+                      <th style={th}>District</th>
                       <th style={{ ...th, textAlign: 'right' }}>#</th>
                       <th style={{ ...th, textAlign: 'right' }}>%</th>
-                      <th style={th}>District</th>
                       {activeChoroLayer === 'congressional' && <th style={th}>Representative</th>}
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, textAlign: 'center' }}>Party</th>}
                       <th style={th} />
@@ -427,11 +445,11 @@ export default function AnalysisPanel({
                           <td style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }} onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
                           </td>
-                          <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{row.count.toLocaleString()}</td>
-                          <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{row.pct}%</td>
                           <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
                             {row.districtName}
                           </td>
+                          <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{row.pct}%</td>
                           {activeChoroLayer === 'congressional' && (
                             <td style={td}>{renderRep(row.districtName, officials)}</td>
                           )}
@@ -470,11 +488,11 @@ export default function AnalysisPanel({
                     {unmatchedCount > 0 && (
                       <tr style={{ background: '#fff5f5' }}>
                         <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
+                        <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
                           {((unmatchedCount / points.length) * 100).toFixed(1)}%
                         </td>
-                        <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
                         {activeChoroLayer === 'congressional' && <td style={td} />}
                         {activeChoroLayer === 'congressional' && <td style={td} />}
                         <td style={td} />
