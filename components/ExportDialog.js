@@ -1,9 +1,41 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
-import { summarizeByLayer } from '../lib/pointInDistrict';
+import { summarizeByLayer, assignDistricts } from '../lib/pointInDistrict';
 import { buildEnrichedCSV, downloadCSV, downloadPdfBlob } from '../lib/exportHelpers';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
+
+const NATIONAL_LAYER_IDS = new Set(['us-senate', 'congressional', 'tribal-lands', 'urban-areas']);
+const STATE_LAYER_IDS = new Set([
+  'counties', 'county-subdivisions', 'zcta', 'state-senate', 'state-house',
+  'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones',
+]);
+
+async function fetchGeojsonForLayer(layerId, stateFips) {
+  if (NATIONAL_LAYER_IDS.has(layerId)) {
+    const res = await fetch(`/api/boundaries?layer=${layerId}`);
+    if (!res.ok) throw new Error(res.statusText);
+    return res.json();
+  }
+  if (STATE_LAYER_IDS.has(layerId)) {
+    if (!stateFips?.length) return { type: 'FeatureCollection', features: [] };
+    const results = await Promise.all(
+      stateFips.map(async (fips) => {
+        const res = await fetch(`/api/boundaries?layer=${layerId}&stateFips=${fips}`);
+        if (!res.ok) throw new Error(res.statusText);
+        return res.json();
+      })
+    );
+    return { type: 'FeatureCollection', features: results.flatMap((r) => r.features || []) };
+  }
+  if (layerId.startsWith('council-')) {
+    const slug = layerId.slice('council-'.length);
+    const res = await fetch(`/api/city-councils?city=${slug}`);
+    if (!res.ok) throw new Error(res.statusText);
+    return res.json();
+  }
+  return null;
+}
 
 const pdfStyles = StyleSheet.create({
   page: { padding: 32, fontFamily: 'Helvetica', fontSize: 10 },
@@ -92,9 +124,10 @@ function getGeoScope(layerId) {
 export default function ExportDialog({
   dataBatches,
   enrichedPoints,
-  suggestedLayers,   // all layer IDs identified as relevant at upload (from geos)
-  matchedLayers,     // layer IDs that have actual enrichment data in enrichedPoints
+  suggestedLayers,
   activeLayers,
+  existingLayerGeojson = {},
+  stateFips = [],
   tier,
   onUpgradeClick,
   onClose,
@@ -102,17 +135,53 @@ export default function ExportDialog({
   const hasMultipleBatches = dataBatches.length > 1;
   const steps = hasMultipleBatches ? ['format', 'datasets', 'geographies'] : ['format', 'geographies'];
 
-  const matchedSet = new Set(matchedLayers);
-  const activeSet = new Set(activeLayers);
-
   const [stepIdx, setStepIdx] = useState(0);
   const [format, setFormat] = useState('csv');
   const [selectedBatches, setSelectedBatches] = useState(() => new Set(dataBatches.map((b) => b.id)));
-  // Default: matched layers that are currently active get pre-checked
-  const [selectedLayers, setSelectedLayers] = useState(
-    () => new Set(matchedLayers.filter((l) => activeSet.has(l)))
-  );
+  const [selectedLayers, setSelectedLayers] = useState(() => new Set(activeLayers));
   const [pdfLoading, setPdfLoading] = useState(false);
+
+  // Export-specific enrichment state
+  const [exportStatus, setExportStatus] = useState('loading'); // 'loading' | 'ready'
+  const [exportProgress, setExportProgress] = useState({ message: 'Preparing…', done: 0, total: 0 });
+  const [exportEnrichedPoints, setExportEnrichedPoints] = useState(null);
+
+  // On mount: fetch missing GeoJSONs and run assignDistricts for all suggested layers
+  useEffect(() => {
+    let cancelled = false;
+    const allPoints = dataBatches.flatMap((b) => b.points);
+
+    async function run() {
+      const missing = suggestedLayers.filter((id) => !existingLayerGeojson[id]);
+      const geojsonMap = { ...existingLayerGeojson };
+
+      for (let i = 0; i < missing.length; i++) {
+        if (cancelled) return;
+        setExportProgress({
+          message: `Fetching ${getLayerDisplayName(missing[i])}…`,
+          done: i,
+          total: missing.length,
+        });
+        try {
+          const geojson = await fetchGeojsonForLayer(missing[i], stateFips);
+          if (geojson) geojsonMap[missing[i]] = geojson;
+        } catch { /* skip failed layers silently */ }
+      }
+
+      if (cancelled) return;
+      const enriched = await assignDistricts(allPoints, geojsonMap, (done, total) => {
+        if (!cancelled) setExportProgress({ message: 'Matching districts…', done, total });
+      });
+
+      if (!cancelled) {
+        setExportEnrichedPoints(enriched);
+        setExportStatus('ready');
+      }
+    }
+
+    run();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentStep = steps[stepIdx];
   const isLastStep = stepIdx === steps.length - 1;
@@ -140,15 +209,17 @@ export default function ExportDialog({
     [dataBatches, selectedBatches]
   );
 
+  // Use locally-enriched points once ready; fall back to map's enrichedPoints while loading
+  const basePoints = exportEnrichedPoints ?? enrichedPoints;
   const filteredPoints = useMemo(
-    () => enrichedPoints.filter((p) => selectedBatches.has(p._batchId)),
-    [enrichedPoints, selectedBatches]
+    () => basePoints.filter((p) => selectedBatches.has(p._batchId)),
+    [basePoints, selectedBatches]
   );
 
-  // Only matched layers can actually be exported
+  // All checked suggested layers are available for export once enrichment is done
   const selectedLayerList = useMemo(
-    () => matchedLayers.filter((l) => selectedLayers.has(l)),
-    [matchedLayers, selectedLayers]
+    () => suggestedLayers.filter((l) => selectedLayers.has(l)),
+    [suggestedLayers, selectedLayers]
   );
 
   const numericFields = useMemo(() => {
@@ -166,8 +237,7 @@ export default function ExportDialog({
 
     if (format === 'csv') {
       const rows = selectedBatchList.flatMap((b) => b.originalRows);
-      const pts = filteredPoints;
-      const csv = buildEnrichedCSV(rows, pts, selLayers);
+      const csv = buildEnrichedCSV(rows, filteredPoints, selLayers);
       const filename = selectedBatchList.length === 1
         ? `${selectedBatchList[0].label.replace(/\s+/g, '-').toLowerCase()}-enriched.csv`
         : 'district-mapper-enriched.csv';
@@ -176,7 +246,6 @@ export default function ExportDialog({
       return;
     }
 
-    // PDF
     if (tier === 'free') { onUpgradeClick?.(); return; }
     setPdfLoading(true);
     try {
@@ -208,6 +277,9 @@ export default function ExportDialog({
     }
     setStepIdx((i) => i + 1);
   }
+
+  const isLoading = exportStatus === 'loading';
+  const downloadDisabled = pdfLoading || isLoading || selectedLayerList.length === 0;
 
   return (
     <div style={backdrop} onClick={onClose}>
@@ -292,12 +364,31 @@ export default function ExportDialog({
           {currentStep === 'geographies' && (
             <div>
               <p style={bodyHint}>Choose which geographies to include in the export.</p>
+
+              {/* Progress bar while enriching */}
+              {isLoading && (
+                <div style={progressWrap}>
+                  <div style={spinner} />
+                  <div>
+                    <div style={progressMsg}>{exportProgress.message}</div>
+                    {exportProgress.total > 0 && (
+                      <div style={progressSub}>
+                        {exportProgress.done.toLocaleString()} / {exportProgress.total.toLocaleString()}
+                        <div style={{ ...progressTrack }}>
+                          <div style={{ ...progressFill, width: `${Math.round((exportProgress.done / exportProgress.total) * 100)}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {suggestedLayers.length === 0 ? (
                 <p style={{ fontSize: 12, color: '#9aabb8', fontStyle: 'italic' }}>
                   No geographies matched yet. Enable boundary geographies from the left panel and your data will be assigned automatically.
                 </p>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, opacity: isLoading ? 0.45 : 1 }}>
                   {[
                     { scope: 'national', label: 'National' },
                     { scope: 'state',    label: 'State' },
@@ -309,25 +400,21 @@ export default function ExportDialog({
                         <div style={geoColHeader}>{label}</div>
                         {colLayers.length === 0 ? (
                           <p style={geoColEmpty}>—</p>
-                        ) : colLayers.map((layerId) => {
-                          const isLoaded = matchedSet.has(layerId);
-                          return (
-                            <label
-                              key={layerId}
-                              style={{ ...geoCheckRow, opacity: isLoaded ? 1 : 0.4, cursor: isLoaded ? 'pointer' : 'default' }}
-                              title={isLoaded ? undefined : 'Enable this geography in the sidebar first'}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedLayers.has(layerId)}
-                                onChange={() => isLoaded && toggleLayer(layerId)}
-                                disabled={!isLoaded}
-                                style={{ marginRight: 6, accentColor: '#1c3557', flexShrink: 0 }}
-                              />
-                              <span style={geoCheckLabel}>{getLayerDisplayName(layerId)}</span>
-                            </label>
-                          );
-                        })}
+                        ) : colLayers.map((layerId) => (
+                          <label
+                            key={layerId}
+                            style={{ ...geoCheckRow, cursor: isLoading ? 'default' : 'pointer' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedLayers.has(layerId)}
+                              onChange={() => !isLoading && toggleLayer(layerId)}
+                              disabled={isLoading}
+                              style={{ marginRight: 6, accentColor: '#1c3557', flexShrink: 0 }}
+                            />
+                            <span style={geoCheckLabel}>{getLayerDisplayName(layerId)}</span>
+                          </label>
+                        ))}
                       </div>
                     );
                   })}
@@ -347,8 +434,8 @@ export default function ExportDialog({
           <div style={{ flex: 1 }} />
           <button
             onClick={handleNext}
-            disabled={pdfLoading || selectedLayerList.length === 0}
-            style={{ ...primaryBtn, opacity: selectedLayerList.length === 0 ? 0.5 : 1 }}
+            disabled={downloadDisabled}
+            style={{ ...primaryBtn, opacity: downloadDisabled ? 0.5 : 1 }}
           >
             {pdfLoading ? 'Generating…' : isLastStep ? '⬇ Download' : 'Next →'}
           </button>
@@ -437,6 +524,26 @@ const geoColHeader = {
 const geoColEmpty = { fontSize: 12, color: '#c5d0da', margin: '6px 0' };
 const geoCheckRow = {
   display: 'flex', alignItems: 'flex-start', gap: 0,
-  padding: '4px 0', cursor: 'pointer', fontSize: 12,
+  padding: '4px 0', fontSize: 12,
 };
 const geoCheckLabel = { fontSize: 12, color: '#1c3557', lineHeight: 1.4 };
+const progressWrap = {
+  display: 'flex', alignItems: 'center', gap: 12,
+  padding: '10px 12px', marginBottom: 14,
+  background: '#f7f9fc', borderRadius: 7, border: '1px solid #dde3ea',
+};
+const spinner = {
+  width: 18, height: 18, flexShrink: 0,
+  border: '2px solid #dde3ea', borderTopColor: '#1c3557',
+  borderRadius: '50%', animation: 'spin 0.75s linear infinite',
+};
+const progressMsg = { fontSize: 12, fontWeight: 600, color: '#1c3557' };
+const progressSub = { fontSize: 11, color: '#9aabb8', marginTop: 2 };
+const progressTrack = {
+  marginTop: 4, height: 4, borderRadius: 2,
+  background: '#e5eaf0', overflow: 'hidden', width: 180,
+};
+const progressFill = {
+  height: '100%', borderRadius: 2,
+  background: '#467c9d', transition: 'width 0.2s',
+};

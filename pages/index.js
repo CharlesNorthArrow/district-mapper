@@ -1142,8 +1142,9 @@ export default function Home() {
           dataBatches={dataBatches}
           enrichedPoints={enrichedPoints}
           suggestedLayers={availableLayers}
-          matchedLayers={matchedLayerIds}
           activeLayers={activeLayers}
+          existingLayerGeojson={layerGeojson}
+          stateFips={selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean)}
           tier={tier}
           onUpgradeClick={() => { setShowExportDialog(false); setShowUpgradeModal(true); }}
           onClose={() => setShowExportDialog(false)}
