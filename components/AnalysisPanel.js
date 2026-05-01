@@ -401,11 +401,12 @@ export default function AnalysisPanel({
                       <th style={{ ...th, width: 28, padding: '5px 4px 5px 12px' }}>
                         <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
                       </th>
+                      <th style={{ ...th, textAlign: 'right' }}>#</th>
+                      <th style={{ ...th, textAlign: 'right' }}>%</th>
                       <th style={th}>District</th>
                       {activeChoroLayer === 'congressional' && <th style={th}>Representative</th>}
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, textAlign: 'center' }}>Party</th>}
-                      <th style={{ ...th, textAlign: 'right' }}>Points</th>
-                      <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
+                      <th style={th} />
                     </tr>
                   </thead>
                   <tbody>
@@ -426,9 +427,25 @@ export default function AnalysisPanel({
                           <td style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }} onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
                           </td>
+                          <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{row.pct}%</td>
                           <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              {row.districtName}
+                            {row.districtName}
+                          </td>
+                          {activeChoroLayer === 'congressional' && (
+                            <td style={td}>{renderRep(row.districtName, officials)}</td>
+                          )}
+                          {activeChoroLayer === 'congressional' && (
+                            <td style={{ ...td, textAlign: 'center' }}>{renderParty(row.districtName, officials)}</td>
+                          )}
+                          <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <button
+                                style={zoomInBtn}
+                                onClick={(e) => { e.stopPropagation(); onDistrictSelect(activeChoroLayer, row.districtName); }}
+                              >
+                                Zoom In
+                              </button>
                               {isScannableLayer(activeChoroLayer) && !isPolicyPulseLocked(tier) && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setPolicyDrawer({ layerId: activeChoroLayer, districtName: row.districtName, stateFips: null }); }}
@@ -445,35 +462,22 @@ export default function AnalysisPanel({
                                   🔒 Policy
                                 </button>
                               )}
-                              <button
-                                style={zoomInBtn}
-                                onClick={(e) => { e.stopPropagation(); onDistrictSelect(activeChoroLayer, row.districtName); }}
-                              >
-                                Zoom In
-                              </button>
                             </span>
                           </td>
-                          {activeChoroLayer === 'congressional' && (
-                            <td style={td}>{renderRep(row.districtName, officials)}</td>
-                          )}
-                          {activeChoroLayer === 'congressional' && (
-                            <td style={{ ...td, textAlign: 'center' }}>{renderParty(row.districtName, officials)}</td>
-                          )}
-                          <td style={{ ...td, textAlign: 'right' }}>{row.count.toLocaleString()}</td>
-                          <td style={{ ...td, textAlign: 'right' }}>{row.pct}%</td>
                         </tr>
                       );
                     })}
                     {unmatchedCount > 0 && (
                       <tr style={{ background: '#fff5f5' }}>
                         <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
-                        <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
-                        {activeChoroLayer === 'congressional' && <td style={td} />}
-                        {activeChoroLayer === 'congressional' && <td style={td} />}
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
                         <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
                           {((unmatchedCount / points.length) * 100).toFixed(1)}%
                         </td>
+                        <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
+                        {activeChoroLayer === 'congressional' && <td style={td} />}
+                        {activeChoroLayer === 'congressional' && <td style={td} />}
+                        <td style={td} />
                       </tr>
                     )}
                   </tbody>
