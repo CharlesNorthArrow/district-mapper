@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
 import { summarizeByLayer, assignDistricts } from '../lib/pointInDistrict';
 import { buildEnrichedCSV, downloadCSV, downloadPdfBlob } from '../lib/exportHelpers';
@@ -51,12 +51,29 @@ const pdfStyles = StyleSheet.create({
   footer: { marginTop: 24, fontSize: 8, color: '#a0aec0' },
 });
 
-function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, datasetLabel }) {
+function pdfLookupRep(districtName, officials) {
+  if (!officials) return null;
+  const m = districtName.match(/^(.+?) [–-] (.+)$/);
+  if (!m) return null;
+  const abbr = m[1];
+  const rawNum = m[2];
+  const num = /at.?large/i.test(rawNum) ? 0 : parseInt((rawNum.match(/\d+/) || [])[0], 10);
+  if (isNaN(num)) return null;
+  return officials[`${abbr}|${num}`] || null;
+}
+
+const PARTY_LABEL = { D: 'Dem', R: 'Rep', I: 'Ind' };
+
+function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, datasetLabel, officials }) {
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   function getDisplayName(layerId) {
     if (LAYER_CONFIG[layerId]) return LAYER_CONFIG[layerId].displayName;
-    if (layerId.startsWith('council-')) return `Council Districts (${layerId.replace('council-', '')})`;
+    if (layerId.startsWith('council-')) {
+      const slug = layerId.replace('council-', '');
+      const city = CITY_COUNCIL_REGISTRY[slug];
+      return city?.displayName || (city ? `${city.name} Council Districts` : `Council Districts (${slug})`);
+    }
     if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
     return layerId;
   }
@@ -71,6 +88,7 @@ function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, data
 
         {activeLayers.map((layerId) => {
           const rows = layerSummary[layerId] || [];
+          const isCongressional = layerId === 'congressional' && officials;
           return (
             <View key={layerId}>
               <Text style={pdfStyles.sectionHeader}>{getDisplayName(layerId)}</Text>
@@ -78,22 +96,35 @@ function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, data
                 <Text style={pdfStyles.headerCell}>District</Text>
                 <Text style={pdfStyles.headerCellRight}>Points</Text>
                 <Text style={pdfStyles.headerCellRight}>% of Total</Text>
-                {numericFields.slice(0, 2).map((f) => (
+                {isCongressional ? (
+                  <>
+                    <Text style={pdfStyles.headerCell}>Representative</Text>
+                    <Text style={pdfStyles.headerCellRight}>Party</Text>
+                  </>
+                ) : numericFields.slice(0, 2).map((f) => (
                   <Text key={f} style={pdfStyles.headerCellRight}>Avg {f}</Text>
                 ))}
               </View>
-              {rows.map((row, i) => (
-                <View key={i} style={pdfStyles.tableRow}>
-                  <Text style={pdfStyles.cell}>{row.districtName}</Text>
-                  <Text style={pdfStyles.cellRight}>{row.count.toLocaleString()}</Text>
-                  <Text style={pdfStyles.cellRight}>{row.pct}%</Text>
-                  {numericFields.slice(0, 2).map((f) => (
-                    <Text key={f} style={pdfStyles.cellRight}>
-                      {row.fieldAverages[f] !== undefined ? row.fieldAverages[f].toFixed(2) : '—'}
-                    </Text>
-                  ))}
-                </View>
-              ))}
+              {rows.map((row, i) => {
+                const rep = isCongressional ? pdfLookupRep(row.districtName, officials) : null;
+                return (
+                  <View key={i} style={pdfStyles.tableRow}>
+                    <Text style={pdfStyles.cell}>{row.districtName}</Text>
+                    <Text style={pdfStyles.cellRight}>{row.count.toLocaleString()}</Text>
+                    <Text style={pdfStyles.cellRight}>{row.pct}%</Text>
+                    {isCongressional ? (
+                      <>
+                        <Text style={pdfStyles.cell}>{rep?.name || '—'}</Text>
+                        <Text style={pdfStyles.cellRight}>{rep ? (PARTY_LABEL[rep.party] || rep.party) : '—'}</Text>
+                      </>
+                    ) : numericFields.slice(0, 2).map((f) => (
+                      <Text key={f} style={pdfStyles.cellRight}>
+                        {row.fieldAverages[f] !== undefined ? row.fieldAverages[f].toFixed(2) : '—'}
+                      </Text>
+                    ))}
+                  </View>
+                );
+              })}
             </View>
           );
         })}
@@ -109,7 +140,7 @@ function getLayerDisplayName(layerId) {
   if (layerId.startsWith('council-')) {
     const slug = layerId.replace('council-', '');
     const city = CITY_COUNCIL_REGISTRY[slug];
-    return city ? `${city.name} Council Districts` : `Council Districts (${slug})`;
+    return city?.displayName || (city ? `${city.name} Council Districts` : `Council Districts (${slug})`);
   }
   if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
   return layerId;
@@ -141,47 +172,19 @@ export default function ExportDialog({
   const [selectedLayers, setSelectedLayers] = useState(() => new Set(activeLayers));
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  // Export-specific enrichment state
-  const [exportStatus, setExportStatus] = useState('loading'); // 'loading' | 'ready'
-  const [exportProgress, setExportProgress] = useState({ message: 'Preparing…', done: 0, total: 0 });
   const [exportEnrichedPoints, setExportEnrichedPoints] = useState(null);
+  const [loadingLayer, setLoadingLayer] = useState(null); // layerId being fetched, or null
+  const geojsonCacheRef = useRef({ ...existingLayerGeojson });
+  const [officials, setOfficials] = useState(null);
 
-  // On mount: fetch missing GeoJSONs and run assignDistricts for all suggested layers
+  const hasCongressional = selectedLayers.has('congressional');
   useEffect(() => {
-    let cancelled = false;
-    const allPoints = dataBatches.flatMap((b) => b.points);
-
-    async function run() {
-      const missing = suggestedLayers.filter((id) => !existingLayerGeojson[id]);
-      const geojsonMap = { ...existingLayerGeojson };
-
-      for (let i = 0; i < missing.length; i++) {
-        if (cancelled) return;
-        setExportProgress({
-          message: `Fetching ${getLayerDisplayName(missing[i])}…`,
-          done: i,
-          total: missing.length,
-        });
-        try {
-          const geojson = await fetchGeojsonForLayer(missing[i], stateFips);
-          if (geojson) geojsonMap[missing[i]] = geojson;
-        } catch { /* skip failed layers silently */ }
-      }
-
-      if (cancelled) return;
-      const enriched = await assignDistricts(allPoints, geojsonMap, (done, total) => {
-        if (!cancelled) setExportProgress({ message: 'Matching districts…', done, total });
-      });
-
-      if (!cancelled) {
-        setExportEnrichedPoints(enriched);
-        setExportStatus('ready');
-      }
-    }
-
-    run();
-    return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!hasCongressional || officials !== null) return;
+    fetch('/api/officials')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setOfficials(data || {}))
+      .catch(() => setOfficials({}));
+  }, [hasCongressional]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentStep = steps[stepIdx];
   const isLastStep = stepIdx === steps.length - 1;
@@ -195,13 +198,27 @@ export default function ExportDialog({
     });
   }
 
-  function toggleLayer(id) {
+  async function toggleLayer(id) {
+    if (loadingLayer) return;
+    const isRemoving = selectedLayers.has(id);
     setSelectedLayers((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) { if (next.size > 1) next.delete(id); }
+      if (isRemoving) { if (next.size > 1) next.delete(id); }
       else next.add(id);
       return next;
     });
+    if (isRemoving) return;
+    // Layer already in the map's geojson — enrichedPoints covers it, nothing to fetch
+    if (geojsonCacheRef.current[id]) return;
+    setLoadingLayer(id);
+    try {
+      const geojson = await fetchGeojsonForLayer(id, stateFips);
+      if (geojson) geojsonCacheRef.current[id] = geojson;
+      const allPoints = dataBatches.flatMap((b) => b.points);
+      const enriched = await assignDistricts(allPoints, geojsonCacheRef.current);
+      setExportEnrichedPoints(enriched);
+    } catch {}
+    setLoadingLayer(null);
   }
 
   const selectedBatchList = useMemo(
@@ -223,11 +240,13 @@ export default function ExportDialog({
   );
 
   const numericFields = useMemo(() => {
+    const SKIP = /^(lat|lng|lon|long|latitude|longitude|x|y|_x|_y|coord|coords)$/i;
     const allHeaders = selectedBatchList.flatMap((b) => b.headers);
     const uniqueHeaders = [...new Set(allHeaders)];
     return uniqueHeaders.filter((h) => {
+      if (SKIP.test(h.trim())) return false;
       const vals = selectedBatchList.flatMap((b) => b.originalRows.slice(0, 10).map((r) => r[h]));
-      return vals.some((v) => v !== '' && !isNaN(parseFloat(v)));
+      return vals.some((v) => v != null && v !== '' && !isNaN(Number(String(v).trim())));
     });
   }, [selectedBatchList]);
 
@@ -258,6 +277,7 @@ export default function ExportDialog({
           pointCount={filteredPoints.length}
           numericFields={numericFields}
           datasetLabel={label}
+          officials={officials}
         />
       ).toBlob();
       const filename = label
@@ -278,8 +298,10 @@ export default function ExportDialog({
     setStepIdx((i) => i + 1);
   }
 
-  const isLoading = exportStatus === 'loading';
-  const downloadDisabled = pdfLoading || isLoading || selectedLayerList.length === 0;
+  const isLoading = loadingLayer !== null;
+  const downloadDisabled = isLastStep
+    ? (pdfLoading || isLoading || selectedLayerList.length === 0)
+    : pdfLoading;
 
   return (
     <div style={backdrop} onClick={onClose}>
@@ -365,30 +387,12 @@ export default function ExportDialog({
             <div>
               <p style={bodyHint}>Choose which geographies to include in the export.</p>
 
-              {/* Progress bar while enriching */}
-              {isLoading && (
-                <div style={progressWrap}>
-                  <div style={spinner} />
-                  <div>
-                    <div style={progressMsg}>{exportProgress.message}</div>
-                    {exportProgress.total > 0 && (
-                      <div style={progressSub}>
-                        {exportProgress.done.toLocaleString()} / {exportProgress.total.toLocaleString()}
-                        <div style={{ ...progressTrack }}>
-                          <div style={{ ...progressFill, width: `${Math.round((exportProgress.done / exportProgress.total) * 100)}%` }} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
               {suggestedLayers.length === 0 ? (
                 <p style={{ fontSize: 12, color: '#9aabb8', fontStyle: 'italic' }}>
                   No geographies matched yet. Enable boundary geographies from the left panel and your data will be assigned automatically.
                 </p>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, opacity: isLoading ? 0.45 : 1 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
                   {[
                     { scope: 'national', label: 'National' },
                     { scope: 'state',    label: 'State' },
@@ -408,7 +412,7 @@ export default function ExportDialog({
                             <input
                               type="checkbox"
                               checked={selectedLayers.has(layerId)}
-                              onChange={() => !isLoading && toggleLayer(layerId)}
+                              onChange={() => toggleLayer(layerId)}
                               disabled={isLoading}
                               style={{ marginRight: 6, accentColor: '#1c3557', flexShrink: 0 }}
                             />
@@ -418,6 +422,13 @@ export default function ExportDialog({
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {isLoading && (
+                <div style={progressWrap}>
+                  <div style={spinner} />
+                  <div style={progressMsg}>Matching {getLayerDisplayName(loadingLayer)}…</div>
                 </div>
               )}
             </div>
@@ -528,22 +539,13 @@ const geoCheckRow = {
 };
 const geoCheckLabel = { fontSize: 12, color: '#1c3557', lineHeight: 1.4 };
 const progressWrap = {
-  display: 'flex', alignItems: 'center', gap: 12,
-  padding: '10px 12px', marginBottom: 14,
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '8px 12px', marginTop: 14,
   background: '#f7f9fc', borderRadius: 7, border: '1px solid #dde3ea',
 };
 const spinner = {
-  width: 18, height: 18, flexShrink: 0,
+  width: 14, height: 14, flexShrink: 0,
   border: '2px solid #dde3ea', borderTopColor: '#1c3557',
   borderRadius: '50%', animation: 'spin 0.75s linear infinite',
 };
-const progressMsg = { fontSize: 12, fontWeight: 600, color: '#1c3557' };
-const progressSub = { fontSize: 11, color: '#9aabb8', marginTop: 2 };
-const progressTrack = {
-  marginTop: 4, height: 4, borderRadius: 2,
-  background: '#e5eaf0', overflow: 'hidden', width: 180,
-};
-const progressFill = {
-  height: '100%', borderRadius: 2,
-  background: '#467c9d', transition: 'width 0.2s',
-};
+const progressMsg = { fontSize: 12, color: '#7a8fa6' };

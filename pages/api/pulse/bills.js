@@ -7,6 +7,8 @@
 //   2. Use state param to look up jurisdiction + session
 //   3. Validate state is in supported list before querying
 
+export const config = { api: { maxDuration: 60 } };
+
 import { STATE_CONFIG } from '../../../lib/policyPulse';
 
 const OPEN_STATES_BASE = 'https://v3.openstates.org';
@@ -23,13 +25,16 @@ async function searchBills(jurisdiction, keyword, attempt = 0) {
   // [EXPAND] Add &session=... once correct session strings per state are confirmed.
   const url = `${OPEN_STATES_BASE}/bills?jurisdiction=${encodeURIComponent(jurisdiction)}&q=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}&include=abstracts&include=sponsorships`;
 
+  const headers = {};
+  if (process.env.OPEN_STATES_API_KEY) headers['X-Api-Key'] = process.env.OPEN_STATES_API_KEY;
+
   const res = await fetch(url, {
-    headers: { 'X-API-KEY': process.env.OPEN_STATES_API_KEY },
-    signal: AbortSignal.timeout(30000),
+    headers,
+    signal: AbortSignal.timeout(8000),
   });
 
-  // Retry once on 502/503 (transient Open States failures)
-  if ((res.status === 502 || res.status === 503) && attempt === 0) {
+  // Retry once on 429/502/503 (transient Open States failures)
+  if ((res.status === 429 || res.status === 502 || res.status === 503) && attempt === 0) {
     await new Promise(r => setTimeout(r, 1500));
     return searchBills(jurisdiction, keyword, 1);
   }
@@ -67,10 +72,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Parallel searches for all keywords
-    const results = await Promise.all(
+    // Parallel searches for all keywords.
+    // allSettled so a single slow/failed keyword doesn't abort the whole scan.
+    const settled = await Promise.allSettled(
       keywordList.map(kw => searchBills(config.jurisdiction, kw))
     );
+    const results = settled
+      .filter(r => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    if (results.length === 0) {
+      // Every keyword search failed — surface the first error
+      const firstErr = settled.find(r => r.status === 'rejected');
+      throw firstErr?.reason ?? new Error('All keyword searches failed');
+    }
 
     // Pass 1 — collect all bills, count how many keyword searches each appears in
     const hitCount = {};

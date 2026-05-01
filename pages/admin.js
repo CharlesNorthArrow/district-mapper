@@ -6,7 +6,7 @@ export async function getServerSideProps(context) {
   const { userId } = getAuth(context.req);
   if (!userId) return { redirect: { destination: '/sign-in', permanent: false } };
 
-  const client = clerkClient();
+  const client = await clerkClient();
   const user = await client.users.getUser(userId);
   const email = user.emailAddresses[0]?.emailAddress;
   if (email !== process.env.ADMIN_EMAIL) {
@@ -50,7 +50,40 @@ export async function getServerSideProps(context) {
   };
 }
 
-export default function AdminPage({ orgs, codes }) {
+import { useState } from 'react';
+
+function generateCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+export default function AdminPage({ orgs, codes: initialCodes }) {
+  const [codes, setCodes] = useState(initialCodes);
+  const [form, setForm] = useState({ code: generateCode(), label: '', tier: 'pro' });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [createSuccess, setCreateSuccess] = useState('');
+
+  async function handleCreateCode(e) {
+    e.preventDefault();
+    setCreateError('');
+    setCreateSuccess('');
+    setCreating(true);
+    try {
+      const res = await fetch('/api/admin/create-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCreateError(data.error || 'Failed'); setCreating(false); return; }
+      setCodes((prev) => [{ code: form.code.toUpperCase(), label: form.label, tier: form.tier, active: true, redemption_count: 0, created_at: new Date().toISOString() }, ...prev]);
+      setCreateSuccess(`Code ${form.code.toUpperCase()} created.`);
+      setForm({ code: generateCode(), label: '', tier: 'pro' });
+    } catch { setCreateError('Something went wrong.'); }
+    setCreating(false);
+  }
+
   return (
     <div style={{ fontFamily: "'Open Sans', sans-serif", padding: 40, maxWidth: 1100, margin: '0 auto' }}>
       <h1 style={{ color: '#1c3557', fontFamily: "'Poppins', sans-serif", marginBottom: 8 }}>
@@ -93,6 +126,42 @@ export default function AdminPage({ orgs, codes }) {
       </table>
 
       <h2 style={{ color: '#1c3557', marginBottom: 16 }}>Premium Codes</h2>
+
+      {/* Create code form */}
+      <form onSubmit={handleCreateCode} style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 20, flexWrap: 'wrap', background: '#f2f8ee', padding: '16px 20px', borderRadius: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={labelStyle}>Code</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              style={inputStyle}
+              value={form.code}
+              onChange={(e) => setForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
+              placeholder="ABCD1234"
+              required
+            />
+            <button type="button" style={{ ...inputStyle, cursor: 'pointer', background: '#fff', whiteSpace: 'nowrap' }} onClick={() => setForm((p) => ({ ...p, code: generateCode() }))}>
+              ↻ New
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={labelStyle}>Label (optional)</label>
+          <input style={inputStyle} value={form.label} onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))} placeholder="e.g. Beta cohort 1" />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={labelStyle}>Tier</label>
+          <select style={inputStyle} value={form.tier} onChange={(e) => setForm((p) => ({ ...p, tier: e.target.value }))}>
+            <option value="pro">Pro</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
+        </div>
+        <button type="submit" disabled={creating} style={{ padding: '8px 20px', background: '#e63947', color: '#fff', border: 'none', borderRadius: 4, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+          {creating ? 'Creating…' : '+ Create Code'}
+        </button>
+        {createError && <p style={{ color: '#e63947', fontSize: 12, margin: 0 }}>{createError}</p>}
+        {createSuccess && <p style={{ color: '#16a34a', fontSize: 12, margin: 0 }}>{createSuccess}</p>}
+      </form>
+
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ background: '#f2f8ee' }}>
@@ -117,3 +186,6 @@ export default function AdminPage({ orgs, codes }) {
     </div>
   );
 }
+
+const labelStyle = { fontSize: 11, fontWeight: 700, color: '#1c3557', textTransform: 'uppercase', letterSpacing: '0.04em' };
+const inputStyle = { padding: '8px 10px', border: '1px solid #c5d0da', borderRadius: 4, fontSize: 13, fontFamily: "'Open Sans', sans-serif" };

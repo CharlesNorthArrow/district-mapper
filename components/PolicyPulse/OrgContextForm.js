@@ -62,7 +62,7 @@ export default function OrgContextForm({ onSubmit }) {
           width: '100%',
         }}
       >
-        Scan Policy →
+        Scan Policies →
       </button>
     </div>
   );

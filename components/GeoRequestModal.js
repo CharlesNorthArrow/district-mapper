@@ -11,8 +11,14 @@ const BOUNDARY_TYPES = [
   'Other',
 ];
 
-export default function GeoRequestModal({ onClose }) {
-  const [form, setForm] = useState({ name: '', email: '', area: '', boundaryType: '', description: '' });
+export default function GeoRequestModal({ onClose, authProfile = null }) {
+  const [form, setForm] = useState({
+    name: authProfile?.personName || '',
+    email: authProfile?.email || '',
+    area: authProfile?.state || '',
+    boundaryType: '',
+    description: '',
+  });
   const [status, setStatus] = useState('idle'); // idle | submitting | success | error
   const [errorMsg, setErrorMsg] = useState('');
 

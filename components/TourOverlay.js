@@ -2,34 +2,44 @@ import { useState } from 'react';
 
 const STEPS = [
   {
+    icon: '🗺️',
+    title: 'Welcome to District Mapper',
+    body: 'District Mapper makes sense of the US\'s many overlapping geographies. Upload your program or member data, select districts you\'re interested in, see distribution and export in minutes.',
+  },
+  {
     icon: '📤',
     title: 'Upload Your Data',
-    body: 'Import a CSV or Excel file with your constituent or program data. District Mapper auto-detects coordinate columns or address fields and geocodes them — no manual column mapping required.',
+    body: 'Import a CSV or Excel file with your constituent or program data.',
   },
   {
     icon: '🗺️',
-    title: 'Add Boundary Layers',
-    body: 'Use the left panel to toggle boundary layers: US Congressional Districts, State Senate & House, Unified or Elementary School Districts, and City Council districts for 16 major cities.',
+    title: 'Select a District Type',
+    body: 'Use the pick list to select a legislative district or other geography.',
   },
   {
     icon: '📊',
     title: 'Analyze the Distribution',
-    body: 'Once data and layers are loaded, the analysis panel shows how your records are distributed across each district — count, percentage, and averages for any numeric fields in your file.',
+    body: 'The analysis panel shows how your records are distributed across each district.',
   },
   {
     icon: '🔍',
-    title: 'Look Up Any Address',
-    body: 'Type any address at the top of the left panel to pin it on the map and instantly see every district it falls in — no file upload needed. Autocomplete makes it fast.',
+    title: 'Look Up an Address',
+    body: 'Use the search bar to locate an address.',
   },
   {
     icon: '🎯',
     title: 'Filter & Explore',
-    body: 'Click any district row in the analysis table to filter the map to just those points and zoom to the district boundary. Click the same row again to reset the view.',
+    body: 'Click any district in the analysis table to zoom in.',
+  },
+  {
+    icon: '🏛️',
+    title: 'Scan Policies',
+    body: 'For any Congressional, State Senate, or State Assembly district, click the Scan Policies button on that row. Policy Pulse uses your mission description to find and score active legislation ranked by relevance to your work.',
   },
   {
     icon: '⬇️',
     title: 'Export Your Results',
-    body: 'Check one or more districts in the analysis table and click Download CSV to get a filtered dataset. Or use the full export to download your original data enriched with all district columns appended.',
+    body: 'Enrich your original data with the matched districts as new columns. Alternatively, download a simple PDF report.',
   },
 ];
 

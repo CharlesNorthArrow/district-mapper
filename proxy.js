@@ -13,6 +13,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/district-lookup(.*)',
   '/api/officials(.*)',
   '/api/unlock(.*)',
+  '/api/auth/me',
   '/api/pulse/(.*)',
   '/api/analyze(.*)',
   '/api/request-geography(.*)',

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import { getOrgContext } from '../../lib/orgContext';
+import { downloadPdfBlob } from '../../lib/exportHelpers';
 import OrgContextForm from './OrgContextForm';
 import BillFeed from './BillFeed';
 import PolicyPDFDoc from './PolicyPDF';
@@ -101,7 +102,11 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
   }
 
   function handleSave() {
-    onSaveScan?.({ districtName, layerId, mission: orgContext, bills });
+    try {
+      onSaveScan?.({ districtName, layerId, mission: orgContext, bills });
+    } catch (e) {
+      console.error('Save scan failed:', e);
+    }
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2000);
   }
@@ -117,12 +122,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
           savedAt={new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
         />
       ).toBlob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `policy-pulse-${(label || districtName).replace(/\s+/g, '-').toLowerCase()}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadPdfBlob(blob, `policy-pulse-${(label || districtName).replace(/\s+/g, '-').toLowerCase()}.pdf`);
     } finally {
       setPdfLoading(false);
     }

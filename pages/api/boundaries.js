@@ -3,6 +3,9 @@
 // GET /api/boundaries?layer=zcta&stateFips=17   (byBbox mode — uses state bounding box)
 // Fetches boundary GeoJSON from ArcGIS Living Atlas or TIGERweb depending on layer config.
 // Returns GeoJSON FeatureCollection.
+// maxDuration: 60 required — paginated layers (county-subdivisions) loop across multiple
+// TIGERweb fetches that together exceed the 10s default Vercel function limit.
+export const config = { api: { maxDuration: 60 } };
 
 import { LAYER_CONFIG } from '../../lib/layerConfig';
 import { STATE_FIPS } from '../../lib/stateFips';

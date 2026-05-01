@@ -25,8 +25,9 @@ function getDisplayName(layerId) {
   return layerId;
 }
 
-export default function Legend({ activeLayers, layerColors, dataBatches = [] }) {
-  if (activeLayers.length === 0 && dataBatches.length === 0) return null;
+export default function Legend({ activeLayers, layerColors, dataBatches = [], choroLayer, choroColor, choroMax }) {
+  const hasContent = activeLayers.length > 0 || dataBatches.length > 0;
+  if (!hasContent && !choroLayer) return null;
 
   return (
     <div style={styles.box}>
@@ -56,16 +57,34 @@ export default function Legend({ activeLayers, layerColors, dataBatches = [] }) 
           </div>
         );
       })}
+
+      {/* Choropleth intensity scale */}
+      {choroLayer && choroColor && (
+        <>
+          {hasContent && <div style={styles.divider} />}
+          <div style={styles.scaleLabel}>Intensity</div>
+          <div style={{ ...styles.scaleBar, background: buildGradient(choroColor) }} />
+          <div style={styles.scaleEnds}>
+            <span>0</span>
+            <span>{typeof choroMax === 'number' ? choroMax.toLocaleString() : ''}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
+function buildGradient(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return `linear-gradient(to right, rgba(70,124,157,0.08), rgba(70,124,157,0.72))`;
+  const r = parseInt(result[1], 16);
+  const g = parseInt(result[2], 16);
+  const b = parseInt(result[3], 16);
+  return `linear-gradient(to right, rgba(${r},${g},${b},0.08), rgba(${r},${g},${b},0.72))`;
+}
+
 const styles = {
   box: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    zIndex: 5,
     background: 'rgba(255,255,255,0.93)',
     border: '1px solid #dde3ea',
     borderRadius: 6,
@@ -123,5 +142,25 @@ const styles = {
   divider: {
     borderTop: '1px solid #dde3ea',
     margin: '4px 0',
+  },
+  scaleLabel: {
+    fontSize: 10,
+    color: '#9aabb8',
+    fontFamily: "'Open Sans', sans-serif",
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    marginBottom: 4,
+  },
+  scaleBar: {
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 3,
+  },
+  scaleEnds: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 10,
+    color: '#7a8fa6',
+    fontFamily: "'Open Sans', sans-serif",
   },
 };

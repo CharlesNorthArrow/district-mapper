@@ -5,6 +5,25 @@ import { ABBR_TO_FIPS } from '../lib/stateFips';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 
+function hexToRgbTuple(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [70, 124, 157];
+}
+
+function canvasRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
 function getBoundaryDisplayName(id) {
   if (LAYER_CONFIG[id]) return LAYER_CONFIG[id].displayName;
   if (id.startsWith('council-')) {
@@ -270,9 +289,10 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       const map = mapRef.current;
       if (!map) return;
       let filter;
-      if (stateField && districtName.includes(' – ')) {
-        const abbr = districtName.split(' – ')[0];
-        const dName = districtName.split(' – ').slice(1).join(' – ');
+      const _fm = stateField && districtName.match(/^(.+?) [–-] (.+)$/);
+      if (_fm) {
+        const abbr = _fm[1];
+        const dName = _fm[2];
         const fips = ABBR_TO_FIPS[abbr];
         filter = fips
           ? ['all', ['==', ['get', stateField], fips], ['==', ['to-string', ['get', districtField]], dName]]
@@ -345,9 +365,10 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
         ];
         buildKeys = (name) => {
           const keys = [];
-          if (name.includes(' – ')) {
-            const abbr = name.split(' – ')[0];
-            const districtName = name.split(' – ').slice(1).join(' – ');
+          const _km = name.match(/^(.+?) [–-] (.+)$/);
+          if (_km) {
+            const abbr = _km[1];
+            const districtName = _km[2];
             const fips = ABBR_TO_FIPS[abbr];
             if (fips) keys.push(`${fips}|${districtName}`);
             keys.push(String(districtName)); // plain-name fallback for cached features without STATE
@@ -414,9 +435,10 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       for (const { layerId, displayName, districtField, stateField } of highlights) {
         if (!map.getSource(layerId)) continue;
         let filter;
-        if (stateField && displayName.includes(' – ')) {
-          const abbr = displayName.split(' – ')[0];
-          const districtName = displayName.split(' – ').slice(1).join(' – ');
+        const _lm = stateField && displayName.match(/^(.+?) [–-] (.+)$/);
+        if (_lm) {
+          const abbr = _lm[1];
+          const districtName = _lm[2];
           const fips = ABBR_TO_FIPS[abbr];
           filter = fips
             ? ['all', ['==', ['get', stateField], fips], ['==', ['get', districtField], districtName]]
@@ -534,10 +556,152 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       map.flyTo({ center: [lng, lat], zoom: 14 });
     },
 
-    captureImage() {
-      const canvas = mapRef.current?.getCanvas();
-      if (!canvas) return;
-      canvas.toBlob((blob) => {
+    async captureImage({ activeLayers = [], layerColors = {}, dataBatches = [], choroLayer, choroColor, choroMax = 0, layerDisplayNames = {} } = {}) {
+      const mapCanvas = mapRef.current?.getCanvas();
+      if (!mapCanvas) return;
+
+      const W = mapCanvas.width;
+      const H = mapCanvas.height;
+      const dpr = window.devicePixelRatio || 1;
+      const sc = dpr; // scale factor for UI elements
+
+      const out = document.createElement('canvas');
+      out.width = W;
+      out.height = H;
+      const ctx = out.getContext('2d');
+
+      ctx.drawImage(mapCanvas, 0, 0);
+
+      // Load logo
+      const logo = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = '/North_Arrow_icon.png';
+      });
+
+      // === Credits bar ===
+      const barH = Math.round(22 * sc);
+      ctx.fillStyle = 'rgba(28,53,87,0.88)';
+      ctx.fillRect(0, H - barH, W, barH);
+
+      const creditsText = 'Made with District Mapper · A nonprofit tool by North Arrow';
+      ctx.font = `${Math.round(10 * sc)}px "Open Sans", sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.80)';
+      ctx.textBaseline = 'middle';
+      const creditsY = H - barH / 2;
+      let textX = Math.round(10 * sc);
+
+      if (logo) {
+        const logoSz = Math.round(14 * sc);
+        ctx.drawImage(logo, Math.round(8 * sc), H - barH + (barH - logoSz) / 2, logoSz, logoSz);
+        textX = Math.round(28 * sc);
+      }
+      ctx.fillText(creditsText, textX, creditsY);
+
+      // === Legend panel ===
+      const hasChoro = choroLayer && choroColor;
+      const legendItems = [];
+      for (const b of dataBatches) legendItems.push({ type: 'batch', color: b.color, label: b.label });
+      if (dataBatches.length > 0 && activeLayers.length > 0) legendItems.push({ type: 'divider' });
+      for (const id of activeLayers) legendItems.push({ type: 'layer', color: layerColors[id] || '#467c9d', label: layerDisplayNames[id] || id });
+
+      if (legendItems.length > 0 || hasChoro) {
+        const pad = Math.round(10 * sc);
+        const rowH = Math.round(19 * sc);
+        const legW = Math.round(170 * sc);
+        const margin = Math.round(12 * sc);
+        const contentRows = legendItems.filter((i) => i.type !== 'divider').length;
+        const dividers = legendItems.filter((i) => i.type === 'divider').length;
+        let legH = pad * 2 + contentRows * rowH + dividers * Math.round(10 * sc);
+        if (hasChoro) legH += (legendItems.length > 0 ? Math.round(10 * sc) : 0) + Math.round(44 * sc);
+
+        const legX = W - legW - margin;
+        const legY = margin;
+
+        // Panel background
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        canvasRoundRect(ctx, legX, legY, legW, legH, Math.round(6 * sc));
+        ctx.fill();
+
+        let y = legY + pad;
+
+        for (const item of legendItems) {
+          if (item.type === 'divider') {
+            ctx.strokeStyle = '#dde3ea';
+            ctx.lineWidth = Math.round(1 * sc);
+            ctx.beginPath();
+            ctx.moveTo(legX + pad, y + Math.round(5 * sc));
+            ctx.lineTo(legX + legW - pad, y + Math.round(5 * sc));
+            ctx.stroke();
+            y += Math.round(10 * sc);
+            continue;
+          }
+          if (item.type === 'batch') {
+            ctx.fillStyle = item.color;
+            ctx.beginPath();
+            ctx.arc(legX + pad + Math.round(5 * sc), y + rowH / 2, Math.round(5 * sc), 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            const sw = Math.round(18 * sc);
+            const sh = Math.round(11 * sc);
+            const sx = legX + pad;
+            const sy = y + (rowH - sh) / 2;
+            ctx.fillStyle = item.color;
+            ctx.globalAlpha = 0.15;
+            ctx.fillRect(sx, sy, sw, sh);
+            ctx.globalAlpha = 0.8;
+            ctx.fillRect(sx, sy + sh * 0.3, sw, sh * 0.4);
+            ctx.globalAlpha = 1;
+          }
+          ctx.font = `${Math.round(10 * sc)}px "Open Sans", sans-serif`;
+          ctx.fillStyle = '#1c3557';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(item.label, legX + pad + Math.round(24 * sc), y + rowH / 2);
+          y += rowH;
+        }
+
+        if (hasChoro) {
+          if (legendItems.length > 0) {
+            ctx.strokeStyle = '#dde3ea';
+            ctx.lineWidth = Math.round(1 * sc);
+            ctx.beginPath();
+            ctx.moveTo(legX + pad, y + Math.round(5 * sc));
+            ctx.lineTo(legX + legW - pad, y + Math.round(5 * sc));
+            ctx.stroke();
+            y += Math.round(10 * sc);
+          }
+          ctx.font = `${Math.round(9 * sc)}px "Open Sans", sans-serif`;
+          ctx.fillStyle = '#9aabb8';
+          ctx.textBaseline = 'top';
+          ctx.fillText('INTENSITY', legX + pad, y);
+          y += Math.round(13 * sc);
+
+          const barW = legW - pad * 2;
+          const barHt = Math.round(8 * sc);
+          const [r, g, b] = hexToRgbTuple(choroColor);
+          const grad = ctx.createLinearGradient(legX + pad, 0, legX + pad + barW, 0);
+          grad.addColorStop(0, `rgba(${r},${g},${b},0.08)`);
+          grad.addColorStop(1, `rgba(${r},${g},${b},0.72)`);
+          ctx.fillStyle = grad;
+          const bry = y;
+          ctx.beginPath();
+          ctx.roundRect?.(legX + pad, bry, barW, barHt, Math.round(3 * sc));
+          ctx.fill();
+          if (!ctx.roundRect) { ctx.fillRect(legX + pad, bry, barW, barHt); }
+
+          y += barHt + Math.round(3 * sc);
+          ctx.font = `${Math.round(9 * sc)}px "Open Sans", sans-serif`;
+          ctx.fillStyle = '#7a8fa6';
+          ctx.textBaseline = 'top';
+          ctx.fillText('0', legX + pad, y);
+          const maxLabel = choroMax.toLocaleString();
+          const maxW = ctx.measureText(maxLabel).width;
+          ctx.fillText(maxLabel, legX + pad + barW - maxW, y);
+        }
+      }
+
+      out.toBlob((blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

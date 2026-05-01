@@ -9,7 +9,7 @@ export default function SignUpPage() {
       justifyContent: 'center',
       background: '#f7f9fc',
     }}>
-      <SignUp fallbackRedirectUrl="/onboarding" signUpFallbackRedirectUrl="/onboarding" />
+      <SignUp forceRedirectUrl="/onboarding" />
     </div>
   );
 }

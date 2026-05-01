@@ -2,6 +2,8 @@
 // Body: JSON { points, originalRows, headers, title }
 // Saves geocoded dataset to Vercel Blob + metadata to Postgres.
 // Called after a successful upload for logged-in users.
+export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
+
 import { getAuth } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
 import { put } from '@vercel/blob';
@@ -23,7 +25,7 @@ export default async function handler(req, res) {
     const content = JSON.stringify({ points, originalRows, headers, title });
 
     const blob = await put(`datasets/${orgId}/latest.json`, content, {
-      access: 'public',
+      access: 'private',
       addRandomSuffix: false,
       contentType: 'application/json',
     });
