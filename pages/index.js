@@ -664,6 +664,18 @@ export default function Home() {
     }
   }
 
+  function handleDistrictZoom(layerId, districtName) {
+    const matching = enrichedPoints.filter((p) => p[layerId] === districtName);
+    const bbox = getDistrictBbox(layerId, districtName, matching);
+    if (bbox) {
+      mapRef.current?.fitBounds(bbox);
+    } else if (matching.length > 0) {
+      const lngs = matching.map((p) => p.lng);
+      const lats = matching.map((p) => p.lat);
+      mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+    }
+  }
+
   async function pinAndAssignDistricts(lat, lng, label) {
     mapRef.current?.addSearchPin(lng, lat);
     setLookupStatus('found');
@@ -1160,6 +1172,7 @@ export default function Home() {
               layerColors={layerColors}
               selectedDistrict={selectedDistrict}
               onDistrictSelect={handleDistrictSelect}
+              onDistrictZoom={handleDistrictZoom}
               activeChoroLayer={activeChoroLayer}
               onChoroLayerSelect={handleChoroLayerSelect}
               onFilteredIndicesChange={(indices) => {

@@ -90,6 +90,7 @@ export default function AnalysisPanel({
   layerColors = {},
   selectedDistrict,
   onDistrictSelect,
+  onDistrictZoom,
   activeChoroLayer,
   onChoroLayerSelect,
   onFilteredIndicesChange,
@@ -461,7 +462,7 @@ export default function AnalysisPanel({
                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <button
                                 style={zoomInBtn}
-                                onClick={(e) => { e.stopPropagation(); onDistrictSelect(activeChoroLayer, row.districtName); }}
+                                onClick={(e) => { e.stopPropagation(); onDistrictZoom?.(activeChoroLayer, row.districtName); }}
                               >
                                 Zoom In
                               </button>
