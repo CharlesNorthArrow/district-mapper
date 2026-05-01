@@ -230,7 +230,7 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
       <div style={modal}>
         <div style={modalHeader}>
           <h2 style={{ margin: 0, fontSize: 16, fontFamily: 'Poppins, sans-serif', fontWeight: 700, color: 'var(--dark-navy)' }}>
-            Upload Data
+            Add New Data
           </h2>
           <button style={closeBtn} onClick={onClose}>✕</button>
         </div>
@@ -238,10 +238,25 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
         {/* ── IDLE ── */}
         {step === 'idle' && (
           <div style={body}>
-            <p style={hint}>Upload a CSV or Excel file with addresses or coordinates.</p>
-            {(tier === 'pro' || tier === 'enterprise') ? (
+            <p style={hint}>Upload your members, your programs, your partners or any programmatic data you'd like analyzed.</p>
+            {tier === 'enterprise' ? (
               <div style={{ ...tierBox, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
-                <p style={{ ...tierBoxTitle, color: '#166534' }}>🔓 {TIERS[tier].label} — unlimited access</p>
+                <p style={{ ...tierBoxTitle, color: '#166534', margin: 0 }}>Enterprise — unlimited access</p>
+              </div>
+            ) : tier === 'pro' ? (
+              <div style={{ ...tierBox, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
+                <p style={{ ...tierBoxTitle, color: '#166534', margin: 0 }}>Pro account limits</p>
+                <div style={tierBoxRow}>
+                  <span>Coordinate data (lat / lng columns)</span>
+                  <span style={tierBoxValue}>Unlimited</span>
+                </div>
+                <div style={tierBoxRow}>
+                  <span>Address geocoding</span>
+                  <span style={tierBoxValue}>{TIERS.pro.maxAddresses.toLocaleString()} rows</span>
+                </div>
+                <button style={tierUpgradeLink} onClick={() => onOpenUpgrade?.()}>
+                  Need more? Upgrade to Enterprise →
+                </button>
               </div>
             ) : tier === 'free' ? (
               <div style={tierBox}>
@@ -275,13 +290,23 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                 </button>
               </div>
             )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              style={{ marginTop: 12 }}
-              onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
-            />
+            <div style={{ marginTop: 4 }}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                style={{ display: 'none' }}
+                onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
+              />
+              <button style={chooseFileBtn} onClick={() => fileRef.current?.click()}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" />
+                  <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+                </svg>
+                Choose a file
+              </button>
+              <p style={{ fontSize: 11, color: '#7a8fa6', margin: '5px 0 0' }}>CSV or Excel (.xlsx, .xls)</p>
+            </div>
             {error && <p style={errorStyle}>{error}</p>}
           </div>
         )}
@@ -616,4 +641,11 @@ const limitWarning = {
   fontSize: 13, color: '#b91c1c', background: '#fee2e2',
   border: '1px solid #fca5a5', borderRadius: 3,
   padding: '7px 10px', margin: 0,
+};
+const chooseFileBtn = {
+  display: 'inline-flex', alignItems: 'center', gap: 8,
+  padding: '10px 20px',
+  background: 'var(--dark-navy)', color: '#fff',
+  border: 'none', borderRadius: 5,
+  fontSize: 13, fontWeight: 600, cursor: 'pointer',
 };

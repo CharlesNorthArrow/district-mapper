@@ -43,10 +43,11 @@ const SCOPE_COLORS = {
 };
 
 function lookupRep(districtName, officials) {
-  if (!officials || !districtName.includes(' – ')) return null;
-  const parts = districtName.split(' – ');
-  const abbr = parts[0];
-  const rawNum = parts.slice(1).join(' – ');
+  if (!officials) return null;
+  const m = districtName.match(/^(.+?) [–-] (.+)$/);
+  if (!m) return null;
+  const abbr = m[1];
+  const rawNum = m[2];
   let distNum;
   if (/at.?large/i.test(rawNum)) {
     distNum = 0;
@@ -347,10 +348,10 @@ export default function AnalysisPanel({
                 <thead>
                   <tr>
                     <th style={th}>Layer</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Districts</th>
+                    <th style={{ ...th, width: 70, textAlign: 'right', whiteSpace: 'nowrap' }}>Districts</th>
                     <th style={th}>Top District</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Matched</th>
-                    <th style={{ ...th, textAlign: 'right' }}>% of Total</th>
+                    <th style={{ ...th, width: 70, textAlign: 'right', whiteSpace: 'nowrap' }}>Matched</th>
+                    <th style={{ ...th, width: 82, textAlign: 'right', whiteSpace: 'nowrap' }}>% of Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -420,11 +421,11 @@ export default function AnalysisPanel({
                         <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
                       </th>
                       <th style={th}>District</th>
-                      <th style={{ ...th, textAlign: 'right' }}>#</th>
-                      <th style={{ ...th, textAlign: 'right' }}>%</th>
-                      {activeChoroLayer === 'congressional' && <th style={th}>Representative</th>}
-                      {activeChoroLayer === 'congressional' && <th style={{ ...th, textAlign: 'center' }}>Party</th>}
-                      <th style={th} />
+                      <th style={{ ...th, width: 42, textAlign: 'right', whiteSpace: 'nowrap' }}>#</th>
+                      <th style={{ ...th, width: 58, textAlign: 'right', whiteSpace: 'nowrap' }}>%</th>
+                      {activeChoroLayer === 'congressional' && <th style={{ ...th, minWidth: 155, whiteSpace: 'nowrap' }}>Representative</th>}
+                      {activeChoroLayer === 'congressional' && <th style={{ ...th, width: 62, textAlign: 'center', whiteSpace: 'nowrap' }}>Party</th>}
+                      <th style={{ ...th, whiteSpace: 'nowrap' }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -445,18 +446,18 @@ export default function AnalysisPanel({
                           <td style={{ ...td, width: 28, padding: '4px 4px 4px 12px' }} onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" checked={isChecked} onChange={() => toggleCheck(row.districtName)} />
                           </td>
-                          <td style={{ ...td, cursor: 'pointer' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
+                          <td style={{ ...td, cursor: 'pointer', width: '100%' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
                             {row.districtName}
                           </td>
-                          <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{row.count.toLocaleString()}</td>
-                          <td style={{ ...td, textAlign: 'right', color: '#7a8fa6' }}>{row.pct}%</td>
+                          <td style={{ ...td, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, textAlign: 'right', color: '#7a8fa6', whiteSpace: 'nowrap' }}>{row.pct}%</td>
                           {activeChoroLayer === 'congressional' && (
-                            <td style={td}>{renderRep(row.districtName, officials)}</td>
+                            <td style={{ ...td, whiteSpace: 'nowrap' }}>{renderRep(row.districtName, officials)}</td>
                           )}
                           {activeChoroLayer === 'congressional' && (
-                            <td style={{ ...td, textAlign: 'center' }}>{renderParty(row.districtName, officials)}</td>
+                            <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>{renderParty(row.districtName, officials)}</td>
                           )}
-                          <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                          <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <button
                                 style={zoomInBtn}
