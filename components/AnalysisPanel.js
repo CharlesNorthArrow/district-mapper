@@ -421,8 +421,8 @@ export default function AnalysisPanel({
                         <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
                       </th>
                       <th style={th}>District</th>
-                      <th style={{ ...th, width: 42, textAlign: 'right', whiteSpace: 'nowrap' }}>#</th>
-                      <th style={{ ...th, width: 58, textAlign: 'right', whiteSpace: 'nowrap' }}>%</th>
+                      <th style={{ ...th, width: 84, textAlign: 'center', whiteSpace: 'nowrap' }}>#</th>
+                      <th style={{ ...th, width: 116, textAlign: 'center', whiteSpace: 'nowrap' }}>%</th>
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, minWidth: 155, whiteSpace: 'nowrap' }}>Representative</th>}
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, width: 62, textAlign: 'center', whiteSpace: 'nowrap' }}>Party</th>}
                       <th style={{ ...th, whiteSpace: 'nowrap' }} />
@@ -449,8 +449,8 @@ export default function AnalysisPanel({
                           <td style={{ ...td, cursor: 'pointer', width: '100%' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
                             {row.districtName}
                           </td>
-                          <td style={{ ...td, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.count.toLocaleString()}</td>
-                          <td style={{ ...td, textAlign: 'right', color: '#7a8fa6', whiteSpace: 'nowrap' }}>{row.pct}%</td>
+                          <td style={{ ...td, textAlign: 'center', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, textAlign: 'center', color: '#7a8fa6', whiteSpace: 'nowrap' }}>{row.pct}%</td>
                           {activeChoroLayer === 'congressional' && (
                             <td style={{ ...td, whiteSpace: 'nowrap' }}>{renderRep(row.districtName, officials)}</td>
                           )}
@@ -490,8 +490,8 @@ export default function AnalysisPanel({
                       <tr style={{ background: '#fff5f5' }}>
                         <td style={{ ...td, padding: '4px 4px 4px 12px' }} />
                         <td style={{ ...td, color: 'var(--red)' }}>⚠ No district match</td>
-                        <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
-                        <td style={{ ...td, textAlign: 'right', color: 'var(--red)' }}>
+                        <td style={{ ...td, textAlign: 'center', color: 'var(--red)' }}>{unmatchedCount.toLocaleString()}</td>
+                        <td style={{ ...td, textAlign: 'center', color: 'var(--red)' }}>
                           {((unmatchedCount / points.length) * 100).toFixed(1)}%
                         </td>
                         {activeChoroLayer === 'congressional' && <td style={td} />}
