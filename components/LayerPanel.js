@@ -12,9 +12,10 @@ const US_STATES = Object.keys(STATE_FIPS).sort();
 // Free layers first, then locked — within each section
 export const NATIONAL_LAYERS = ['us-senate', 'congressional', 'tribal-lands', 'urban-areas'];
 export const STATE_LAYERS = [
+  'state-senate', 'state-house',
   'counties', 'county-subdivisions', 'zcta',
-  'state-senate', 'state-house', 'school-unified',
-  'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones',
+  'school-unified', 'school-elementary', 'school-secondary',
+  'incorporated-places', 'opportunity-zones',
 ];
 
 export default function LayerPanel({
