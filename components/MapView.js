@@ -118,10 +118,22 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
         if (choro && choro.layerId === layerId) {
           const count = choro.plainCounts[districtName] ?? 0;
           const pct = choro.total > 0 ? ((count / choro.total) * 100).toFixed(1) : '0.0';
-          const namePart = districtName ? `<strong>${districtName}</strong> &middot; ` : '';
-          lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; ${namePart}${count.toLocaleString()} pts &middot; ${pct}%</div>`);
+          lines.push(
+            `<div style="padding:8px 10px 6px;min-width:155px">` +
+            `<div style="font-size:10px;font-weight:700;color:#9aabb8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">${info.displayName}</div>` +
+            (districtName ? `<div style="font-size:14px;font-weight:700;color:#1c3557;line-height:1.25;margin-bottom:7px">${districtName}</div>` : '') +
+            `<div style="display:flex;gap:18px">` +
+            `<div><div style="font-size:10px;color:#9aabb8;margin-bottom:2px">Points</div><div style="font-size:13px;font-weight:700;color:#1c3557">${count.toLocaleString()}</div></div>` +
+            `<div><div style="font-size:10px;color:#9aabb8;margin-bottom:2px">% of Total</div><div style="font-size:13px;font-weight:700;color:#467c9d">${pct}%</div></div>` +
+            `</div></div>`
+          );
         } else {
-          if (districtName) lines.push(`<div><span style="color:#7a8fa6">${info.displayName}</span> &mdash; ${districtName}</div>`);
+          if (districtName) lines.push(
+            `<div style="padding:8px 10px 6px">` +
+            `<div style="font-size:10px;font-weight:700;color:#9aabb8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">${info.displayName}</div>` +
+            `<div style="font-size:13px;font-weight:700;color:#1c3557">${districtName}</div>` +
+            `</div>`
+          );
         }
       }
 
@@ -132,9 +144,11 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       }
       hoverPopupRef.current
         .setLngLat(e.lngLat)
-        .setHTML(`<div style="font-family:'Open Sans',sans-serif;font-size:12px;color:#1c3557;line-height:1.8;padding:2px 2px">${lines.join('')}</div>`)
+        .setHTML(`<div style="font-family:'Open Sans',sans-serif">${lines.join('<div style="height:1px;background:#eef1f4;margin:0 10px"></div>')}</div>`)
         .addTo(map);
     });
+
+    map.on('mouseout', () => { hoverPopupRef.current?.remove(); });
 
     return () => map.remove();
   }, []);

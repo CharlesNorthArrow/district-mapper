@@ -423,6 +423,7 @@ export default function LayerPanel({
         </div>
       </div>
 
+      <div style={{ flex: 1, overflowY: 'auto' }}>
       {/* National section */}
       <div style={styles.section}>
         <button style={styles.sectionHeader} onClick={() => toggleSection('national')}>
@@ -647,6 +648,8 @@ export default function LayerPanel({
         </button>
       </div>
 
+      </div>
+
       {showGeoRequest && <GeoRequestModal onClose={() => setShowGeoRequest(false)} authProfile={authProfile} />}
     </div>
   );
@@ -661,7 +664,7 @@ const styles = {
     borderRight: '1px solid #dde3ea',
     display: 'flex',
     flexDirection: 'column',
-    overflowY: 'auto',
+    overflow: 'hidden',
     zIndex: 10,
   },
   header: {

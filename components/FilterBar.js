@@ -1,9 +1,11 @@
 import { useState, useMemo, useRef } from 'react';
 
 const TEXT_CONDITIONS = [
-  { value: 'contains', label: 'contains' },
-  { value: 'equals',   label: 'equals' },
-  { value: 'starts',   label: 'starts with' },
+  { value: 'contains',     label: 'contains' },
+  { value: 'not_contains', label: 'does not include' },
+  { value: 'equals',       label: 'equals' },
+  { value: 'not_equals',   label: 'does not equal' },
+  { value: 'starts',       label: 'starts with' },
 ];
 const NUM_CONDITIONS = [
   { value: '=',  label: '=' },
@@ -24,9 +26,11 @@ function evalDataFilter(point, filter) {
   const val = String(raw ?? '');
   const fval = filter.value;
   switch (filter.condition) {
-    case 'contains': return val.toLowerCase().includes(fval.toLowerCase());
-    case 'equals':   return val.toLowerCase() === fval.toLowerCase();
-    case 'starts':   return val.toLowerCase().startsWith(fval.toLowerCase());
+    case 'contains':     return val.toLowerCase().includes(fval.toLowerCase());
+    case 'not_contains': return !val.toLowerCase().includes(fval.toLowerCase());
+    case 'equals':       return val.toLowerCase() === fval.toLowerCase();
+    case 'not_equals':   return val.toLowerCase() !== fval.toLowerCase();
+    case 'starts':       return val.toLowerCase().startsWith(fval.toLowerCase());
     case '=':  return parseFloat(val) === parseFloat(fval);
     case '!=': return parseFloat(val) !== parseFloat(fval);
     case '>':  return parseFloat(val) > parseFloat(fval);
@@ -142,8 +146,8 @@ export default function FilterBar({
           {activeFilters.map((f, i) => (
             <span key={i} style={f.type === 'district' ? districtChip : dataChip}>
               {f.type === 'district'
-                ? <>{f.layerName} <em style={{ fontStyle: 'normal', opacity: 0.8 }}>{f.mode}s</em> &ldquo;{f.value}&rdquo;</>
-                : <>{f.column} {f.condition} &ldquo;{f.value}&rdquo;</>
+                ? <>{f.layerName} <em style={{ fontStyle: 'normal', opacity: 0.8 }}>{f.mode === 'include' ? 'includes' : 'does not include'}</em> &ldquo;{f.value}&rdquo;</>
+                : <>{f.column} {TEXT_CONDITIONS.find(c => c.value === f.condition)?.label ?? f.condition} &ldquo;{f.value}&rdquo;</>
               }
               <button style={chipX} onClick={() => removeFilter(i)}>×</button>
             </span>
@@ -193,7 +197,7 @@ export default function FilterBar({
             onChange={e => setDraftDistrict(prev => ({ ...prev, mode: e.target.value }))}
           >
             <option value="include">includes</option>
-            <option value="exclude">excludes</option>
+            <option value="exclude">does not include</option>
           </select>
           <select
             style={{ ...sel, minWidth: 120 }}

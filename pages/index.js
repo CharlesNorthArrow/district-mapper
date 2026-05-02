@@ -76,25 +76,6 @@ const mapLoadingBadge = {
   whiteSpace: 'nowrap',
 };
 
-const tourBtnStyle = {
-  position: 'absolute',
-  top: 10,
-  left: '50%',
-  transform: 'translateX(-50%)',
-  zIndex: 5,
-  background: '#f5a800',
-  border: 'none',
-  borderRadius: 20,
-  padding: '6px 16px',
-  fontSize: 12,
-  fontWeight: 700,
-  color: '#fff',
-  fontFamily: "'Open Sans', sans-serif",
-  cursor: 'pointer',
-  boxShadow: '0 2px 8px rgba(245,168,0,0.45)',
-  whiteSpace: 'nowrap',
-  animation: 'breathe 3s ease-in-out infinite',
-};
 
 const mapActionBtn = {
   width: 29, height: 29,
@@ -1130,6 +1111,13 @@ export default function Home() {
                 <path d="M2 11h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
               </svg>
             </button>
+            <button
+              onClick={() => setShowTour(true)}
+              title="How does this work?"
+              style={{ ...mapActionBtn, background: '#f5a800', color: '#fff', boxShadow: '0 0 0 2px rgba(245,168,0,0.3)', animation: 'breathe 3s ease-in-out infinite' }}
+            >
+              <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>?</span>
+            </button>
           </div>
 
           {loadingLayer && (
@@ -1138,12 +1126,6 @@ export default function Home() {
               Loading {LAYER_CONFIG[loadingLayer]?.displayName || loadingLayer}…
             </div>
           )}
-          <button
-            style={tourBtnStyle}
-            onClick={() => setShowTour(true)}
-          >
-            How does this work?
-          </button>
           {dataBatches.length > 0 && (
             <AnalysisPanel
               uploadedData={{

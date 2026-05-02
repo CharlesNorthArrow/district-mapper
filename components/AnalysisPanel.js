@@ -298,12 +298,12 @@ export default function AnalysisPanel({
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style={{ color: '#7a8fa6', flexShrink: 0 }}>
               <path d="M1 2h14l-5 6.5V14l-4-2V8.5L1 2z"/>
             </svg>
-            <span style={headerGroupLabel}>Filter:</span>
+            <span style={headerGroupLabel}>Filter By:</span>
             <button
               style={{ ...headerGroupBtn, ...(filterAdding === 'data' ? headerGroupBtnActiveData : {}) }}
               onClick={() => setFilterAdding(filterAdding === 'data' ? null : 'data')}
             >
-              Data
+              My Data
             </button>
             <span style={headerGroupDivider}>|</span>
             <button
