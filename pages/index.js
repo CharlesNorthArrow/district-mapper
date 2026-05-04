@@ -1013,25 +1013,22 @@ export default function Home() {
       setShowOverflowBanner(true);
     }
 
+    // In overwrite mode, always hide demo immediately (synchronously, before the updater runs)
+    // so the dataBatches/hiddenBatches useEffect sees demo as hidden when it fires.
     if (!isAdd) {
-      hiddenBatchesRef.current = new Set();
-      setHiddenBatches(new Set());
+      hiddenBatchesRef.current = new Set(['demo']);
+      setHiddenBatches(new Set(['demo']));
+    } else {
+      // Add mode: hide demo if it's currently in state
+      hiddenBatchesRef.current = new Set([...hiddenBatchesRef.current, 'demo']);
+      setHiddenBatches(new Set(hiddenBatchesRef.current));
     }
 
-    let allVisiblePoints = [];
     let batchesToSave = null;
-
-    let demoBatchPresent = false;
 
     setDataBatches((prevBatches) => {
       const prevReal = prevBatches.filter((b) => !b.isDemo);
       const prevDemo = prevBatches.filter((b) => b.isDemo);
-      demoBatchPresent = prevDemo.length > 0;
-
-      if (demoBatchPresent) {
-        // Auto-hide demo when real data arrives — session only, not persisted
-        hiddenBatchesRef.current = new Set([...hiddenBatchesRef.current, 'demo']);
-      }
 
       const batchIndex = isAdd ? prevReal.length : 0;
       const globalOffset = isAdd ? prevReal.reduce((sum, b) => sum + b.points.length, 0) : 0;
@@ -1051,20 +1048,14 @@ export default function Home() {
       const newBatches = isAdd ? [...prevDemo, ...prevReal, newBatch] : [...prevDemo, newBatch];
       batchesToSave = newBatches.filter((b) => !b.isDemo);
 
-      // Map is synced by the dataBatches/hiddenBatches useEffect after state settles
-      const visibleBatches = newBatches.filter((b) => !hiddenBatchesRef.current.has(b.id));
-      allVisiblePoints = visibleBatches.flatMap((b) => b.points);
-
       return newBatches;
     });
 
-    // Sync hiddenBatches state if demo was auto-hidden inside the updater
-    if (demoBatchPresent) setHiddenBatches(new Set(hiddenBatchesRef.current));
-
-    // Fit map to show all visible points — done outside updater to avoid side effects
-    if (allVisiblePoints.length > 0) {
-      const lngs = allVisiblePoints.map((p) => p.lng);
-      const lats = allVisiblePoints.map((p) => p.lat);
+    // Fit map to the newly uploaded points — use `points` directly since the
+    // setDataBatches updater hasn't run yet when this code executes in React 18.
+    if (points.length > 0) {
+      const lngs = points.map((p) => p.lng);
+      const lats = points.map((p) => p.lat);
       mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
     }
 
