@@ -29,7 +29,8 @@ export default function PreAuthModal({ onClose, context }) {
 
   function handlePro() {
     onClose();
-    openSignUp({ afterSignUpUrl: '/onboarding?intent=pro' });
+    try { localStorage.setItem('dm_signup_intent', 'pro'); } catch {}
+    openSignUp({ afterSignUpUrl: '/onboarding' });
   }
 
   async function handleCodeContinue(e) {

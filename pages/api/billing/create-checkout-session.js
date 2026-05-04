@@ -33,22 +33,26 @@ export default async function handler(req, res) {
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: org.email,
-        metadata: { org_id: org.id },
+        metadata: { org_id: String(org.id) },
       });
       customerId = customer.id;
       await sql`UPDATE orgs SET stripe_customer_id = ${customerId} WHERE id = ${org.id}`;
     }
 
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const appUrl = `${proto}://${host}`;
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?upgrade=success`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/?upgrade=canceled`,
+      success_url: `${appUrl}/?upgrade=success`,
+      cancel_url: `${appUrl}/?upgrade=canceled`,
       allow_promotion_codes: true,
-      client_reference_id: org.id,
+      client_reference_id: String(org.id),
       subscription_data: {
-        metadata: { org_id: org.id },
+        metadata: { org_id: String(org.id) },
       },
     });
 

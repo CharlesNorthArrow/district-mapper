@@ -11,21 +11,27 @@ export default function Onboarding() {
     orgName: '',
     title: '',
     state: '',
-    newsletterOptIn: false,
+    newsletterOptIn: true,
   });
   const [inviteCode, setInviteCode] = useState('');
   const [showCodeInput, setShowCodeInput] = useState(false);
+  const [signupIntent, setSignupIntent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Pre-fill code and intent from query params set by PreAuthModal
+  // Pre-fill code from query params; read intent from localStorage
+  // (NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL strips query params from afterSignUpUrl,
+  //  so intent is stored in localStorage by PreAuthModal before openSignUp is called)
   useEffect(() => {
-    const { code, intent } = router.query;
+    const { code } = router.query;
     if (code) {
       setInviteCode(decodeURIComponent(code));
       setShowCodeInput(true);
     }
-    // intent is read in handleSubmit redirect, no local state needed
+    try {
+      const stored = localStorage.getItem('dm_signup_intent') || '';
+      if (stored) setSignupIntent(stored);
+    } catch {}
   }, [router.query]);
 
   function set(field, value) {
@@ -47,7 +53,8 @@ export default function Onboarding() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Something went wrong.'); setLoading(false); return; }
-      const dest = router.query.intent === 'pro' ? '/?showUpgrade=true' : '/';
+      try { localStorage.removeItem('dm_signup_intent'); } catch {}
+      const dest = signupIntent === 'pro' ? '/?showUpgrade=true' : '/';
       router.replace(dest);
     } catch {
       setError('Something went wrong. Please try again.');

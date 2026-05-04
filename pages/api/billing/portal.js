@@ -22,9 +22,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No billing account yet — subscribe first.' });
     }
 
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL}/`,
+      return_url: `${proto}://${host}/`,
     });
 
     res.json({ url: session.url });

@@ -127,7 +127,7 @@ export default function AccountPage() {
             <div style={section}>
               <div style={sectionLabel}>Upgrade</div>
               <p style={infoText}>You're on the free plan. Upgrade to Pro for all layers, AI analysis, and PDF export.</p>
-              <a href="/" style={upgradeBtn}>View Pro plans →</a>
+              <a href="/?showUpgrade=true" style={upgradeBtn}>View Pro plans →</a>
             </div>
           )}
 

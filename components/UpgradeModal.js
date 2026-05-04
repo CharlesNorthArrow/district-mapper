@@ -194,17 +194,10 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
               <div style={cardsRow}>
                 {/* Monthly */}
                 <div style={card}>
-                  <div style={cardHeader}>
-                    <span style={cardTitle}>Monthly</span>
-                    <span style={cardPrice}>$10 / mo</span>
-                  </div>
-                  <ul style={featureList}>
-                    {PRO_FEATURES.map((f) => (
-                      <li key={f} style={featureItem}><span style={checkmark}>✓</span>{f}</li>
-                    ))}
-                  </ul>
+                  <div style={cardTitle}>Monthly</div>
+                  <div style={cardPrice}>$10 <span style={{ fontSize: 12, fontWeight: 500, color: '#7a8fa6' }}>/ mo</span></div>
                   <button
-                    style={{ ...primaryBtn, opacity: checkoutLoading ? 0.7 : 1 }}
+                    style={{ ...primaryBtn, opacity: checkoutLoading ? 0.7 : 1, background: '#1c3557', marginTop: 'auto' }}
                     disabled={!!checkoutLoading}
                     onClick={() => handleSubscribe('monthly')}
                   >
@@ -214,18 +207,11 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
 
                 {/* Annual */}
                 <div style={{ ...card, borderColor: '#e63947' }}>
-                  <div style={cardHeader}>
-                    <span style={cardTitle}>Annual</span>
-                    <span style={cardPrice}>$100 / yr</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, marginTop: -8 }}>Save ~17%</div>
-                  <ul style={featureList}>
-                    {PRO_FEATURES.map((f) => (
-                      <li key={f} style={featureItem}><span style={checkmark}>✓</span>{f}</li>
-                    ))}
-                  </ul>
+                  <div style={cardTitle}>Annual</div>
+                  <div style={cardPrice}>$100 <span style={{ fontSize: 12, fontWeight: 500, color: '#7a8fa6' }}>/ yr</span></div>
+                  <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>Save ~17% vs monthly</div>
                   <button
-                    style={{ ...primaryBtn, opacity: checkoutLoading ? 0.7 : 1 }}
+                    style={{ ...primaryBtn, opacity: checkoutLoading ? 0.7 : 1, marginTop: 'auto' }}
                     disabled={!!checkoutLoading}
                     onClick={() => handleSubscribe('annual')}
                   >
@@ -285,10 +271,10 @@ const hint = { fontSize: 13, color: '#4a5568', margin: 0 };
 const backBtn = { background: 'none', border: 'none', color: '#467c9d', cursor: 'pointer', fontSize: 12, padding: 0, textAlign: 'left' };
 const linkBtn = { background: 'none', border: 'none', color: '#467c9d', cursor: 'pointer', fontSize: 12, padding: 0, textDecoration: 'underline', fontFamily: "'Open Sans', sans-serif" };
 const cardsRow = { display: 'flex', gap: 12 };
-const card = { flex: 1, border: '1px solid #dde3ea', borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 };
+const card = { flex: 1, border: '1px solid #dde3ea', borderRadius: 8, padding: '16px', display: 'flex', flexDirection: 'column', gap: 8 };
 const cardHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' };
 const cardTitle = { fontSize: 15, fontFamily: 'Poppins, sans-serif', fontWeight: 700, color: '#1c3557' };
-const cardPrice = { fontSize: 12, fontWeight: 600, color: '#e63947' };
+const cardPrice = { fontSize: 22, fontWeight: 700, color: '#1c3557', lineHeight: 1.2 };
 const featureList = { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5, flex: 1 };
 const featureItem = { display: 'flex', gap: 6, fontSize: 12, color: '#374151', alignItems: 'flex-start' };
 const checkmark = { color: '#16a34a', fontWeight: 700, flexShrink: 0 };
