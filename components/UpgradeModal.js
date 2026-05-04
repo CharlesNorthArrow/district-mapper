@@ -5,7 +5,7 @@ const PRO_FEATURES = [
   'Unlimited lat/lon rows',
   'CSV + PDF report exports',
   'AI-driven Policy bills scanning and tracking',
-  'All boundary geographies',
+  'All Legislative Geographies',
   'City council districts (16 cities)',
 ];
 

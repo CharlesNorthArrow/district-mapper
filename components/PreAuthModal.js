@@ -4,7 +4,7 @@ import { useClerk } from '@clerk/nextjs';
 const FREE_FEATURES = [
   'Up to 500 addresses per upload',
   '2,500 lat/lon rows',
-  'All boundary layers',
+  'All Legislative Geographies',
   'CSV export',
   'Officials lookup',
 ];
