@@ -4,7 +4,6 @@
 import Stripe from 'stripe';
 import { sql } from '@vercel/postgres';
 import { resolveTier } from '../../../lib/resolveTier';
-import nodemailer from 'nodemailer';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -54,7 +53,7 @@ export default async function handler(req, res) {
     res.json({ received: true });
   } catch (err) {
     console.error('Webhook handler error:', err);
-    res.status(500).json({ error: 'Handler failed' });
+    res.status(200).json({ received: true, warning: 'Handler error — check logs' });
   }
 }
 
@@ -114,30 +113,35 @@ async function handlePaymentFailed(invoice) {
 }
 
 async function sendWelcomeProEmail(orgId) {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
+  if (!process.env.RESEND_API_KEY) return;
 
   const { rows } = await sql`SELECT person_name, email FROM orgs WHERE id = ${orgId} LIMIT 1`;
   if (!rows.length) return;
   const { person_name, email } = rows[0];
   const firstName = person_name.split(' ')[0];
 
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'District Mapper <noreply@north-arrow.org>',
+      to: email,
+      subject: `You're now on District Mapper Pro`,
+      html: `
+        <p>Hi ${firstName},</p>
+        <p>Your District Mapper account is now on <strong>Pro</strong>. You have full access to all layers, AI analysis, PDF export, and Policy Pulse.</p>
+        <p><a href="https://districts.north-arrow.org" style="background:#e63947;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;margin:8px 0">Open District Mapper →</a></p>
+        <p>To manage your subscription, update your card, or cancel, use the billing portal inside the app.</p>
+        <p>— The North Arrow team</p>
+      `,
+    }),
   });
 
-  await transporter.sendMail({
-    from: `District Mapper <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: `You're now on District Mapper Pro`,
-    html: `
-      <p>Hi ${firstName},</p>
-      <p>Your District Mapper account is now on <strong>Pro</strong>. You have full access to all layers, AI analysis, PDF export, and Policy Pulse.</p>
-      <p><a href="https://districts.north-arrow.org" style="background:#e63947;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;margin:8px 0">Open District Mapper →</a></p>
-      <p>To manage your subscription, update your card, or cancel, use the billing portal inside the app.</p>
-      <p>— The North Arrow team</p>
-    `,
-  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Resend error ${res.status}`);
+  }
 }
