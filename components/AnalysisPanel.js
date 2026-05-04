@@ -308,7 +308,7 @@ export default function AnalysisPanel({
 
       {/* Header */}
       <div style={panelHeader}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
           {multiSelectMode && activeChoroLayer && (
             <button
               style={backBtn}
@@ -327,6 +327,23 @@ export default function AnalysisPanel({
                 onClick={() => onDistrictSelect(selectedDistrict.layerId, selectedDistrict.districtName)}
               >✕</button>
             </span>
+          )}
+          {dataBatches.length > 1 && (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+              <span style={{ width: 1, height: 14, background: '#dde3ea', margin: '0 2px' }} />
+              <button style={batchPill(selectedBatchId === null, null)} onClick={() => handleBatchSelect(null)}>All</button>
+              {dataBatches.map(batch => (
+                <button
+                  key={batch.id}
+                  style={batchPill(selectedBatchId === batch.id, batch.color)}
+                  onClick={() => handleBatchSelect(batch.id)}
+                  title={batch.label}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: selectedBatchId === batch.id ? '#fff' : batch.color, display: 'inline-block', flexShrink: 0 }} />
+                  {batch.label}
+                </button>
+              ))}
+            </div>
           )}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -360,28 +377,6 @@ export default function AnalysisPanel({
 
       {open && (
         <div style={panelBody}>
-          {/* Dataset tabs — only shown when multiple batches are loaded */}
-          {dataBatches.length > 1 && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 8, flexWrap: 'wrap' }}>
-              <button
-                style={batchPill(selectedBatchId === null, null)}
-                onClick={() => handleBatchSelect(null)}
-              >
-                All Data
-              </button>
-              {dataBatches.map(batch => (
-                <button
-                  key={batch.id}
-                  style={batchPill(selectedBatchId === batch.id, batch.color)}
-                  onClick={() => handleBatchSelect(batch.id)}
-                >
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: batch.color, display: 'inline-block', flexShrink: 0 }} />
-                  {batch.label}
-                </button>
-              ))}
-            </div>
-          )}
-
           {/* Filter bar */}
           <FilterBar
             headers={headers}
@@ -740,8 +735,8 @@ const zoomInBtn = {
 };
 function batchPill(active, color) {
   return {
-    display: 'inline-flex', alignItems: 'center', gap: 5,
-    padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
     cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
     fontFamily: "'Open Sans', sans-serif",
     background: active ? (color || '#1c3557') : '#eef0f3',
