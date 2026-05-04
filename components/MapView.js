@@ -64,9 +64,6 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
   const hoverPopupRef = useRef(null);
   const choroDataRef = useRef(null); // { layerId, plainCounts, total, districtField }
   const layerMetaRef = useRef({}); // { [layerId]: { fillId, displayName } }
-  const pointClickHandlerRef = useRef(null);
-  const pointEnterHandlerRef = useRef(null);
-  const pointLeaveHandlerRef = useRef(null);
   const lookupHighlightIds = useRef([]);
   const styleReadyRef = useRef(false); // true once the map 'load' event has fired; stays true permanently
 
@@ -90,7 +87,35 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
-    map.once('load', () => { styleReadyRef.current = true; });
+
+    map.once('load', () => {
+      styleReadyRef.current = true;
+
+      // Create the uploaded-points source and layer once — setPointLayer uses setData() to update
+      map.addSource('uploaded-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'uploaded-points',
+        type: 'circle',
+        source: 'uploaded-points',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#e63947',
+          'circle-opacity': 0.85,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#fff',
+        },
+      });
+
+      const popup = new mapboxgl.Popup({ closeButton: true, maxWidth: '320px' });
+      popupRef.current = popup;
+      map.on('click', 'uploaded-points', (e) => {
+        const feature = e.features?.[0];
+        if (!feature) return;
+        popup.setLngLat(e.lngLat).setHTML(buildPopupHTML(feature.properties)).addTo(map);
+      });
+      map.on('mouseenter', 'uploaded-points', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'uploaded-points', () => { map.getCanvas().style.cursor = ''; });
+    });
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -209,67 +234,28 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       const map = mapRef.current;
       if (!map) return;
 
-      const doSet = () => {
-        if (pointClickHandlerRef.current) {
-          map.off('click', 'uploaded-points', pointClickHandlerRef.current);
-          map.off('mouseenter', 'uploaded-points', pointEnterHandlerRef.current);
-          map.off('mouseleave', 'uploaded-points', pointLeaveHandlerRef.current);
-        }
-        if (map.getLayer('uploaded-points')) map.removeLayer('uploaded-points');
-        if (map.getSource('uploaded-points')) map.removeSource('uploaded-points');
+      const doUpdate = () => {
+        const source = map.getSource('uploaded-points');
+        if (!source) return;
 
-        const geojson = {
+        source.setData({
           type: 'FeatureCollection',
           features: points.map((p) => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
             properties: { ...p },
           })),
-        };
+        });
 
         const entries = Object.entries(batchColors);
         const colorExpr = entries.length > 1
           ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
           : (entries[0]?.[1] ?? '#e63947');
-
-        map.addSource('uploaded-points', { type: 'geojson', data: geojson });
-        map.addLayer({
-          id: 'uploaded-points',
-          type: 'circle',
-          source: 'uploaded-points',
-          paint: {
-            'circle-radius': 5,
-            'circle-color': colorExpr,
-            'circle-opacity': 0.85,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#fff',
-          },
-        });
-
-        if (!popupRef.current) {
-          popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '320px' });
-        }
-        const popup = popupRef.current;
-
-        const clickHandler = (e) => {
-          const feature = e.features?.[0];
-          if (!feature) return;
-          popup.setLngLat(e.lngLat).setHTML(buildPopupHTML(feature.properties)).addTo(map);
-        };
-        const enterHandler = () => { map.getCanvas().style.cursor = 'pointer'; };
-        const leaveHandler = () => { map.getCanvas().style.cursor = ''; };
-
-        map.on('click', 'uploaded-points', clickHandler);
-        map.on('mouseenter', 'uploaded-points', enterHandler);
-        map.on('mouseleave', 'uploaded-points', leaveHandler);
-
-        pointClickHandlerRef.current = clickHandler;
-        pointEnterHandlerRef.current = enterHandler;
-        pointLeaveHandlerRef.current = leaveHandler;
+        map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
       };
 
-      if (styleReadyRef.current) doSet();
-      else map.once('load', doSet);
+      if (styleReadyRef.current) doUpdate();
+      else map.once('load', doUpdate);
     },
 
     fitBounds(bbox) {
