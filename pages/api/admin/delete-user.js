@@ -4,7 +4,7 @@ import { getAuth, clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
 
 export default async function handler(req, res) {
-  if (req.method !== 'DELETE' && req.method !== 'POST') return res.status(405).end();
+  if (!['GET', 'POST', 'DELETE'].includes(req.method)) return res.status(405).end();
 
   const { userId } = getAuth(req);
   if (!userId) return res.status(401).end();
