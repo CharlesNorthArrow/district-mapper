@@ -40,6 +40,7 @@ export default async function handler(req, res) {
     const blob = await put(`datasets/${orgId}/latest.json`, content, {
       access: 'private',
       addRandomSuffix: false,
+      allowOverwrite: true,
       contentType: 'application/json',
     });
 
