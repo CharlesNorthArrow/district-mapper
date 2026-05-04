@@ -2,7 +2,7 @@
 // Returns org profile + tier. Returns { tier: 'free', loggedIn: false } if not logged in.
 import { getAuth } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
-import { resolveTier } from '../../lib/resolveTier';
+import { resolveTier } from '../../../lib/resolveTier';
 
 export default async function handler(req, res) {
   const { userId } = getAuth(req);
