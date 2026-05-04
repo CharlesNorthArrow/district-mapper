@@ -100,6 +100,7 @@ export default function AnalysisPanel({
   onSaveScan,
   onDeletePolicyScan,
   multiSelectMode = false,
+  dataBatches = [],
 }) {
   const [open, setOpen] = useState(false);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
@@ -110,6 +111,7 @@ export default function AnalysisPanel({
   const [panelHeight, setPanelHeight] = useState(() =>
     typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.35) : 310
   );
+  const [selectedBatchId, setSelectedBatchId] = useState(null); // null = All Data
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
   const autoSizedForRef = useRef(null);
@@ -131,9 +133,25 @@ export default function AnalysisPanel({
     document.addEventListener('mouseup', onUp);
   }
 
-  const { points, originalRows, headers } = uploadedData;
+  // When a specific batch is selected, narrow all data to that batch only
+  const activeBatch = selectedBatchId ? dataBatches.find(b => b.id === selectedBatchId) : null;
 
-  const filteredPoints = useMemo(() => applyFilters(enrichedPoints, activeFilters), [enrichedPoints, activeFilters]);
+  const { points, originalRows, headers } = useMemo(() => {
+    if (activeBatch) {
+      return { points: activeBatch.points, originalRows: activeBatch.originalRows, headers: activeBatch.headers };
+    }
+    return uploadedData;
+  }, [activeBatch, uploadedData]);
+
+  const effectiveEnrichedPoints = useMemo(() => {
+    if (!activeBatch) return enrichedPoints;
+    return enrichedPoints.filter(p => p._batchId === activeBatch.id);
+  }, [activeBatch, enrichedPoints]);
+
+  const filteredPoints = useMemo(() => applyFilters(effectiveEnrichedPoints, activeFilters), [effectiveEnrichedPoints, activeFilters]);
+
+  // Reset filters when switching batches
+  useEffect(() => { setActiveFilters([]); }, [selectedBatchId]);
 
   useEffect(() => {
     if (activeFilters.length === 0) {
@@ -244,7 +262,7 @@ export default function AnalysisPanel({
   function handleFilteredDownload() {
     const dateStr = new Date().toISOString().slice(0, 10);
     const layerName = getDisplayName(activeChoroLayer).replace(/\s+/g, '-').toLowerCase();
-    const csv = buildFilteredCSV(originalRows, enrichedPoints, activeChoroLayer, checkedDistricts, activeLayers);
+    const csv = buildFilteredCSV(originalRows, effectiveEnrichedPoints, activeChoroLayer, checkedDistricts, activeLayers);
     downloadCSV(csv, `filtered-${layerName}-${dateStr}.csv`);
   }
 
@@ -323,6 +341,28 @@ export default function AnalysisPanel({
 
       {open && (
         <div style={panelBody}>
+          {/* Dataset tabs — only shown when multiple batches are loaded */}
+          {dataBatches.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 8, flexWrap: 'wrap' }}>
+              <button
+                style={batchPill(selectedBatchId === null, null)}
+                onClick={() => setSelectedBatchId(null)}
+              >
+                All Data
+              </button>
+              {dataBatches.map(batch => (
+                <button
+                  key={batch.id}
+                  style={batchPill(selectedBatchId === batch.id, batch.color)}
+                  onClick={() => setSelectedBatchId(batch.id)}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: batch.color, display: 'inline-block', flexShrink: 0 }} />
+                  {batch.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Filter bar */}
           <FilterBar
             headers={headers}
@@ -330,7 +370,7 @@ export default function AnalysisPanel({
             activeFilters={activeFilters}
             onFiltersChange={setActiveFilters}
             activeLayers={activeLayers}
-            allEnrichedPoints={enrichedPoints}
+            allEnrichedPoints={effectiveEnrichedPoints}
             getLayerName={getDisplayName}
             adding={filterAdding}
             onAddingChange={setFilterAdding}
@@ -664,3 +704,14 @@ const zoomInBtn = {
   padding: '2px 8px', fontSize: 11, fontWeight: 600, color: 'var(--mid-blue)',
   cursor: 'pointer', whiteSpace: 'nowrap',
 };
+function batchPill(active, color) {
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+    cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
+    fontFamily: "'Open Sans', sans-serif",
+    background: active ? (color || '#1c3557') : '#eef0f3',
+    color: active ? '#fff' : '#4a5568',
+  };
+}
+

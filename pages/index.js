@@ -1202,6 +1202,7 @@ export default function Home() {
               onSaveScan={handleSavePolicyScan}
               onDeletePolicyScan={handleDeletePolicyScan}
               multiSelectMode={multiSelectMode}
+              dataBatches={dataBatches}
             />
           )}
         </div>
