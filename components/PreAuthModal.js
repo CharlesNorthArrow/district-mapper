@@ -16,7 +16,7 @@ const PRO_FEATURES = [
   'Policy Pulse bill tracking',
 ];
 
-export default function PreAuthModal({ onClose }) {
+export default function PreAuthModal({ onClose, context }) {
   const { openSignUp, openSignIn } = useClerk();
 
   function handleSignUp() {
@@ -38,6 +38,9 @@ export default function PreAuthModal({ onClose }) {
         </div>
 
         <div style={body}>
+          {context && (
+            <div style={contextBanner}>{context}</div>
+          )}
           <p style={description}>
             Upload your constituent or program data and instantly see how your people map
             to legislative districts, school boundaries, and more.
@@ -97,6 +100,7 @@ const featureList = { margin: 0, padding: 0, listStyle: 'none', display: 'flex',
 const featureItem = { display: 'flex', gap: 6, fontSize: 12, color: '#374151', alignItems: 'flex-start' };
 const check = { color: '#16a34a', fontWeight: 700, flexShrink: 0 };
 const proNote = { fontSize: 11, color: '#7a8fa6', margin: 0 };
+const contextBanner = { background: '#eef6fb', border: '1px solid #a9dadc', borderRadius: 6, padding: '10px 14px', fontSize: 13, color: '#1c3557', fontWeight: 600 };
 const primaryBtn = { padding: '11px 0', background: '#e63947', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Open Sans', sans-serif", width: '100%' };
 const signInPrompt = { fontSize: 12, color: '#7a8fa6', margin: 0, textAlign: 'center' };
 const linkBtn = { background: 'none', border: 'none', color: '#467c9d', cursor: 'pointer', fontSize: 12, padding: 0, textDecoration: 'underline', fontFamily: "'Open Sans', sans-serif" };

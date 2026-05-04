@@ -93,7 +93,10 @@ export default function Home() {
   const router = useRouter();
   const { isLoaded: clerkLoaded, isSignedIn } = useUser();
   const { openSignUp } = useClerk(); // kept for legacy paths
-  const [showPreAuthModal, setShowPreAuthModal] = useState(false);
+  const [preAuthContext, setPreAuthContext] = useState(null);
+  const showPreAuthModal = preAuthContext !== null;
+  function openPreAuth(context = '') { setPreAuthContext(context); }
+  function closePreAuth() { setPreAuthContext(null); }
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
@@ -983,6 +986,10 @@ export default function Home() {
           onCityLayerToggle={handleCityLayerToggle}
           onCustomLayer={handleCustomLayer}
           onUploadClick={(mode) => {
+            if (!isSignedIn) {
+              openPreAuth('Create a free account to upload and map your first dataset.');
+              return;
+            }
             uploadModeRef.current = mode;
             setShowUploadModal(true);
           }}
@@ -1060,7 +1067,7 @@ export default function Home() {
               ) : (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button
-                    onClick={() => setShowPreAuthModal(true)}
+                    onClick={() => openPreAuth()}
                     style={{
                       background: '#e63947', color: '#fff', border: 'none',
                       borderRadius: 6, padding: '7px 16px', fontSize: 12,
@@ -1200,7 +1207,7 @@ export default function Home() {
       )}
 
       {showPreAuthModal && (
-        <PreAuthModal onClose={() => setShowPreAuthModal(false)} />
+        <PreAuthModal onClose={closePreAuth} context={preAuthContext || ''} />
       )}
 
       {showUpgradeModal && (
