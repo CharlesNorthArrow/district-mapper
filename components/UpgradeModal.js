@@ -3,8 +3,8 @@ import { useState } from 'react';
 const PRO_FEATURES = [
   'Up to 5,000 addresses per upload',
   'Unlimited lat/lon rows',
-  'PDF report export',
-  'AI plain language analysis',
+  'CSV + PDF report exports',
+  'AI-driven Policy bills scanning and tracking',
   'All boundary geographies',
   'City council districts (16 cities)',
 ];

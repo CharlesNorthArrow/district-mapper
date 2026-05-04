@@ -93,6 +93,11 @@ export default function Home() {
   const router = useRouter();
   const { isLoaded: clerkLoaded, isSignedIn } = useUser();
   const { openSignUp } = useClerk(); // kept for legacy paths
+
+  function handleUpgradeClick() {
+    if (!isSignedIn) { openPreAuth('Unlock this feature by creating a free account or subscribing to Pro.'); return; }
+    setShowUpgradeModal(true);
+  }
   const [preAuthContext, setPreAuthContext] = useState(null);
   const showPreAuthModal = preAuthContext !== null;
   function openPreAuth(context = '') { setPreAuthContext(context); }
@@ -1012,7 +1017,7 @@ export default function Home() {
           lookupDistricts={lookupDistricts}
           onGeographySelect={handleGeographySelect}
           tier={tier}
-          onUpgradeClick={() => setShowUpgradeModal(true)}
+          onUpgradeClick={handleUpgradeClick}
           layerCounts={layerCounts}
           layerColors={layerColors}
           activeChoroLayer={activeChoroLayer}
@@ -1192,7 +1197,7 @@ export default function Home() {
                 }
               }}
               tier={tier}
-              onUpgradeClick={() => setShowUpgradeModal(true)}
+              onUpgradeClick={handleUpgradeClick}
               savedPolicies={savedPolicies}
               onSaveScan={handleSavePolicyScan}
               onDeletePolicyScan={handleDeletePolicyScan}
@@ -1234,7 +1239,7 @@ export default function Home() {
           existingLayerGeojson={layerGeojson}
           stateFips={selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean)}
           tier={tier}
-          onUpgradeClick={() => { setShowExportDialog(false); setShowUpgradeModal(true); }}
+          onUpgradeClick={() => { setShowExportDialog(false); handleUpgradeClick(); }}
           onClose={() => setShowExportDialog(false)}
         />
       )}
