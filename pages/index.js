@@ -547,8 +547,12 @@ export default function Home() {
   }, [activeLayers]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { tierRef.current = tier; }, [tier]);
   useEffect(() => {
-    // Detect sign-out: if we were signed in and are now signed out, wipe all session data
-    if (clerkLoaded && isSignedInRef.current && !isSignedIn) {
+    // Only track sign-in state when Clerk is fully loaded — if we update the ref while
+    // clerkLoaded=false (Clerk's intermediate state during sign-out), it resets to false
+    // and the sign-out detection condition never fires.
+    if (!clerkLoaded) return;
+
+    if (isSignedInRef.current && !isSignedIn) {
       // Clear React state
       setDataBatches([]);
       setEnrichedPoints([]);
@@ -602,6 +606,8 @@ export default function Home() {
           tierRef.current = data.tier;
         }
         if (data.loggedIn) {
+          // Guard: abort if user signed out while this fetch was in flight
+          if (!isSignedInRef.current) return;
           // Restore last map extent (dataset fitBounds will override if data exists)
           if (savedExtentRef.current) {
             mapRef.current?.flyTo(savedExtentRef.current);
