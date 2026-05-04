@@ -68,6 +68,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
   const pointEnterHandlerRef = useRef(null);
   const pointLeaveHandlerRef = useRef(null);
   const lookupHighlightIds = useRef([]);
+  const styleReadyRef = useRef(false); // true once the map 'load' event has fired; stays true permanently
 
   useEffect(() => {
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -89,6 +90,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
+    map.once('load', () => { styleReadyRef.current = true; });
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -178,7 +180,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
         layerMetaRef.current[id] = { fillId, displayName: getBoundaryDisplayName(id) };
       };
 
-      if (map.isStyleLoaded()) doAdd();
+      if (styleReadyRef.current) doAdd();
       else map.once('load', doAdd);
     },
 
@@ -205,10 +207,9 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
     // batchColors: { [batchId]: colorString } — used to color points per dataset
     setPointLayer(points, batchColors = {}) {
       const map = mapRef.current;
-      if (!map) { console.log('[DM] setPointLayer — map not ready'); return; }
+      if (!map) return;
 
       const doSet = () => {
-        console.log('[DM] doSet — pts:', points.length, '| styleLoaded was:', map.isStyleLoaded());
         if (pointClickHandlerRef.current) {
           map.off('click', 'uploaded-points', pointClickHandlerRef.current);
           map.off('mouseenter', 'uploaded-points', pointEnterHandlerRef.current);
@@ -267,8 +268,8 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
         pointLeaveHandlerRef.current = leaveHandler;
       };
 
-      if (map.isStyleLoaded()) doSet();
-      else { console.log('[DM] setPointLayer — style not loaded, queuing'); map.once('load', doSet); }
+      if (styleReadyRef.current) doSet();
+      else map.once('load', doSet);
     },
 
     fitBounds(bbox) {
@@ -276,7 +277,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       if (!map) return;
       const [west, south, east, north] = bbox;
       const doFit = () => map.fitBounds([[west, south], [east, north]], { padding: 60, maxZoom: 14 });
-      if (map.isStyleLoaded()) doFit();
+      if (styleReadyRef.current) doFit();
       else map.once('load', doFit);
     },
 
@@ -284,7 +285,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       const map = mapRef.current;
       if (!map) return;
       const doFly = () => map.flyTo({ center: [center.lng, center.lat], zoom });
-      if (map.isStyleLoaded()) doFly();
+      if (styleReadyRef.current) doFly();
       else map.once('load', doFly);
     },
 

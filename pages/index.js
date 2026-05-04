@@ -407,7 +407,6 @@ export default function Home() {
     const visibleBatches = dataBatches.filter(b => !hiddenBatches.has(b.id));
     const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
     const pts = visibleBatches.flatMap(b => b.points);
-    console.log('[DM] setPointLayer effect — batches:', dataBatches.map(b => b.id), '| hidden:', [...hiddenBatches], '| visible pts:', pts.length);
     mapRef.current?.setPointLayer(pts, batchColors);
   }, [dataBatches, hiddenBatches]); // eslint-disable-line react-hooks/exhaustive-deps
 
