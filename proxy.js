@@ -14,6 +14,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/officials(.*)',
   '/api/unlock(.*)',
   '/api/auth/me',
+  '/api/auth/check-code(.*)',
+  '/api/billing/webhook',
   '/api/pulse/(.*)',
   '/api/analyze(.*)',
   '/api/request-geography(.*)',
