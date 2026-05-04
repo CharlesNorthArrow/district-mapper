@@ -406,7 +406,9 @@ export default function Home() {
     if (dataBatches.length === 0) return;
     const visibleBatches = dataBatches.filter(b => !hiddenBatches.has(b.id));
     const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
-    mapRef.current?.setPointLayer(visibleBatches.flatMap(b => b.points), batchColors);
+    const pts = visibleBatches.flatMap(b => b.points);
+    console.log('[DM] setPointLayer effect — batches:', dataBatches.map(b => b.id), '| hidden:', [...hiddenBatches], '| visible pts:', pts.length);
+    mapRef.current?.setPointLayer(pts, batchColors);
   }, [dataBatches, hiddenBatches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update map points + choropleth when user clicks a batch tab in AnalysisPanel

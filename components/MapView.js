@@ -205,9 +205,10 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
     // batchColors: { [batchId]: colorString } — used to color points per dataset
     setPointLayer(points, batchColors = {}) {
       const map = mapRef.current;
-      if (!map) return;
+      if (!map) { console.log('[DM] setPointLayer — map not ready'); return; }
 
       const doSet = () => {
+        console.log('[DM] doSet — pts:', points.length, '| styleLoaded was:', map.isStyleLoaded());
         if (pointClickHandlerRef.current) {
           map.off('click', 'uploaded-points', pointClickHandlerRef.current);
           map.off('mouseenter', 'uploaded-points', pointEnterHandlerRef.current);
@@ -267,7 +268,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       };
 
       if (map.isStyleLoaded()) doSet();
-      else map.once('load', doSet);
+      else { console.log('[DM] setPointLayer — style not loaded, queuing'); map.once('load', doSet); }
     },
 
     fitBounds(bbox) {
