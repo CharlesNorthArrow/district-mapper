@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { STATE_FIPS } from '../lib/stateFips';
 
@@ -17,6 +17,16 @@ export default function Onboarding() {
   const [showCodeInput, setShowCodeInput] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Pre-fill code and intent from query params set by PreAuthModal
+  useEffect(() => {
+    const { code, intent } = router.query;
+    if (code) {
+      setInviteCode(decodeURIComponent(code));
+      setShowCodeInput(true);
+    }
+    // intent is read in handleSubmit redirect, no local state needed
+  }, [router.query]);
 
   function set(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -37,7 +47,8 @@ export default function Onboarding() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Something went wrong.'); setLoading(false); return; }
-      router.replace('/');
+      const dest = router.query.intent === 'pro' ? '/?showUpgrade=true' : '/';
+      router.replace(dest);
     } catch {
       setError('Something went wrong. Please try again.');
       setLoading(false);

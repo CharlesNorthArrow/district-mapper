@@ -153,7 +153,12 @@ export default function Home() {
 
   // Handle Stripe redirect params: /?upgrade=success or /?upgrade=canceled
   useEffect(() => {
-    const { upgrade } = router.query;
+    const { upgrade, showUpgrade } = router.query;
+    if (showUpgrade === 'true') {
+      router.replace('/', undefined, { shallow: true });
+      setShowUpgradeModal(true);
+      return;
+    }
     if (!upgrade) return;
     router.replace('/', undefined, { shallow: true });
     if (upgrade === 'success') {
