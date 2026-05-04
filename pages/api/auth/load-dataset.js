@@ -38,12 +38,20 @@ export default async function handler(req, res) {
 
     const data = await blobRes.json();
 
+    // v2 format: multiple batches
+    if (data?.version === 2 && Array.isArray(data.batches)) {
+      const total = data.batches.reduce((s, b) => s + (b.points?.length ?? 0), 0);
+      console.log(`[load-dataset] returning v2 (${data.batches.length} batches, ${total} points) for user ${userId}`);
+      return res.status(200).json({ dataset: { version: 2, batches: data.batches, filename, uploaded_at } });
+    }
+
+    // v1 format: single dataset
     if (!data?.points?.length) {
       console.error('[load-dataset] blob had no points');
       return res.status(200).json({ dataset: null });
     }
 
-    console.log(`[load-dataset] returning ${data.points.length} points for user ${userId}`);
+    console.log(`[load-dataset] returning v1 ${data.points.length} points for user ${userId}`);
     return res.status(200).json({
       dataset: {
         filename,

@@ -118,6 +118,7 @@ export default function Home() {
   const [layerColors, setLayerColors] = useState({});
   const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
   const [hiddenBatches, setHiddenBatches] = useState(new Set());
+  const [focusedBatchId, setFocusedBatchId] = useState(null); // null = all batches visible
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
@@ -286,11 +287,12 @@ export default function Home() {
     return { districtField: 'NAME', stateField: null };
   }
 
-  function buildChoroData(layerId) {
+  function buildChoroData(layerId, ptsOverride = null) {
     const { districtField, stateField } = getDistrictField(layerId);
     const color = layerColors[layerId] || DEFAULT_LAYER_COLOR;
+    const pts = ptsOverride ?? enrichedPoints;
     const counts = {};
-    for (const p of enrichedPoints) {
+    for (const p of pts) {
       if (p[layerId] != null) counts[p[layerId]] = (counts[p[layerId]] || 0) + 1;
     }
     // For label display, strip state prefix so it matches GeoJSON feature names
@@ -330,11 +332,30 @@ export default function Home() {
   // Keep choropleth and labels in sync when enrichedPoints updates
   useEffect(() => {
     if (!activeChoroLayer || enrichedPoints.length === 0) return;
-    const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer);
-    const geojson = layerGeojson[activeChoroLayer];
+    const choroPts = focusedBatchId ? enrichedPoints.filter(p => p._batchId === focusedBatchId) : null;
+    const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer, choroPts);
     const total = Object.values(counts).reduce((s, c) => s + c, 0);
     mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
   }, [enrichedPoints, activeChoroLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update map points + choropleth when user clicks a batch tab in AnalysisPanel
+  useEffect(() => {
+    if (dataBatches.length === 0) return;
+    if (focusedBatchId) {
+      const batch = dataBatches.find(b => b.id === focusedBatchId);
+      if (batch) mapRef.current?.setPointLayer(batch.points, { [batch.id]: batch.color });
+    } else {
+      const visibleBatches = dataBatches.filter(b => !hiddenBatches.has(b.id));
+      const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
+      mapRef.current?.setPointLayer(visibleBatches.flatMap(b => b.points), batchColors);
+    }
+    if (activeChoroLayer && enrichedPoints.length > 0) {
+      const choroPts = focusedBatchId ? enrichedPoints.filter(p => p._batchId === focusedBatchId) : null;
+      const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer, choroPts);
+      const total = Object.values(counts).reduce((s, c) => s + c, 0);
+      mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
+    }
+  }, [focusedBatchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleUnlock(newTier) {
     setTier(newTier);
@@ -347,12 +368,13 @@ export default function Home() {
 
   const choroMax = useMemo(() => {
     if (!activeChoroLayer || enrichedPoints.length === 0) return 0;
+    const pts = focusedBatchId ? enrichedPoints.filter(p => p._batchId === focusedBatchId) : enrichedPoints;
     const counts = {};
-    for (const p of enrichedPoints) {
+    for (const p of pts) {
       if (p[activeChoroLayer] != null) counts[p[activeChoroLayer]] = (counts[p[activeChoroLayer]] || 0) + 1;
     }
     return Math.max(...Object.values(counts), 0);
-  }, [enrichedPoints, activeChoroLayer]);
+  }, [enrichedPoints, activeChoroLayer, focusedBatchId]);
 
   function handleSaveImage() {
     const layerDisplayNames = Object.fromEntries(
@@ -522,21 +544,32 @@ export default function Home() {
         return;
       }
       const { dataset } = await res.json();
-      if (!dataset?.points?.length) {
+      if (!dataset) { setPersistMsg(null); return; }
+
+      autoReloadingRef.current = true;
+
+      // v2 format: multiple batches
+      if (dataset.version === 2 && Array.isArray(dataset.batches) && dataset.batches.length > 0) {
+        for (let i = 0; i < dataset.batches.length; i++) {
+          const b = dataset.batches[i];
+          if (!b.points?.length) continue;
+          uploadModeRef.current = i === 0 ? 'overwrite' : 'add';
+          handleUploadComplete(b.points, b.originalRows ?? [], b.headers ?? [], null, b.title || `Dataset ${i + 1}`, 0);
+        }
+        uploadModeRef.current = 'overwrite';
+        const total = dataset.batches.reduce((s, b) => s + (b.points?.length ?? 0), 0);
+        setPersistMsg({ type: 'restored', text: `↺ ${dataset.batches.length} datasets restored (${total} records)` });
+      } else if (dataset.points?.length) {
+        // v1 format: single dataset
+        handleUploadComplete(dataset.points, dataset.originalRows ?? [], dataset.headers ?? [], null, dataset.title || dataset.filename || '', 0);
+        setPersistMsg({ type: 'restored', text: `↺ Dataset restored (${dataset.points.length} records)` });
+      } else {
         setPersistMsg(null);
+        autoReloadingRef.current = false;
         return;
       }
-      autoReloadingRef.current = true;
-      handleUploadComplete(
-        dataset.points,
-        dataset.originalRows ?? [],
-        dataset.headers ?? [],
-        null,
-        dataset.title || dataset.filename || '',
-        0,
-      );
+
       autoReloadingRef.current = false;
-      setPersistMsg({ type: 'restored', text: `↺ Dataset restored (${dataset.points.length} records)` });
       setTimeout(() => setPersistMsg(null), 5000);
     } catch (err) {
       setPersistMsg({ type: 'error', text: `Restore error: ${err.message}` });
@@ -870,6 +903,7 @@ export default function Home() {
     }
 
     let allVisiblePoints = [];
+    let batchesToSave = null;
 
     setDataBatches((prevBatches) => {
       const batchIndex = isAdd ? prevBatches.length : 0;
@@ -887,6 +921,7 @@ export default function Home() {
 
       const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
       const newBatches = isAdd ? [...prevBatches, newBatch] : [newBatch];
+      batchesToSave = newBatches;
 
       // Update map point layer — respect any hidden batches
       const visibleBatches = newBatches.filter((b) => !hiddenBatchesRef.current.has(b.id));
@@ -906,21 +941,31 @@ export default function Home() {
 
     setShowUploadModal(false);
 
-    // Persist dataset for logged-in users.
+    // Persist all batches for logged-in users.
     // Guard: skip when called from autoReloadDataset (already loaded from blob — no need to re-save).
-    if (!isAdd && isSignedInRef.current && !autoReloadingRef.current) {
+    if (isSignedInRef.current && !autoReloadingRef.current && batchesToSave) {
       setPersistMsg({ type: 'saving', text: 'Saving dataset…' });
+      const payload = {
+        version: 2,
+        batches: batchesToSave.map(b => ({
+          points: b.points,
+          originalRows: b.originalRows,
+          headers: b.headers,
+          title: b.label,
+          color: b.color,
+        })),
+      };
       fetch('/api/auth/save-dataset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points, originalRows, headers, title }),
+        body: JSON.stringify(payload),
       })
         .then(async (r) => {
           if (!r.ok) {
             const e = await r.json().catch(() => ({}));
             setPersistMsg({ type: 'error', text: `Save failed (${r.status}): ${e.error || 'unknown error'}` });
           } else {
-            setPersistMsg({ type: 'saved', text: '✓ Dataset saved to your account' });
+            setPersistMsg({ type: 'saved', text: `✓ ${batchesToSave.length > 1 ? `${batchesToSave.length} datasets` : 'Dataset'} saved to your account` });
             setTimeout(() => setPersistMsg(null), 4000);
           }
         })
@@ -1203,6 +1248,7 @@ export default function Home() {
               onDeletePolicyScan={handleDeletePolicyScan}
               multiSelectMode={multiSelectMode}
               dataBatches={dataBatches}
+              onBatchFocus={setFocusedBatchId}
             />
           )}
         </div>

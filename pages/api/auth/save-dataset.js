@@ -2,7 +2,7 @@
 // Body: JSON { points, originalRows, headers, title }
 // Saves geocoded dataset to Vercel Blob + metadata to Postgres.
 // Called after a successful upload for logged-in users.
-export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
+export const config = { api: { bodyParser: { sizeLimit: '25mb' } } };
 
 import { getAuth } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
@@ -21,8 +21,21 @@ export default async function handler(req, res) {
     if (!orgRows.length) return res.status(404).json({ error: 'Org not found' });
     const orgId = orgRows[0].id;
 
-    const { points, originalRows, headers, title } = req.body;
-    const content = JSON.stringify({ points, originalRows, headers, title });
+    const body = req.body;
+
+    // Determine display info for the datasets metadata row
+    let rowCount, primaryTitle, primaryHeaders;
+    if (body.version === 2 && Array.isArray(body.batches)) {
+      rowCount = body.batches.reduce((s, b) => s + (b.points?.length ?? 0), 0);
+      primaryTitle = body.batches[0]?.title || '';
+      primaryHeaders = body.batches[0]?.headers ?? [];
+    } else {
+      rowCount = body.points?.length ?? 0;
+      primaryTitle = body.title || '';
+      primaryHeaders = body.headers ?? [];
+    }
+
+    const content = JSON.stringify(body);
 
     const blob = await put(`datasets/${orgId}/latest.json`, content, {
       access: 'private',
@@ -32,7 +45,7 @@ export default async function handler(req, res) {
 
     await sql`
       INSERT INTO datasets (org_id, blob_url, filename, row_count, headers)
-      VALUES (${orgId}, ${blob.url}, ${title || ''}, ${points?.length ?? 0}, ${JSON.stringify(headers ?? [])})
+      VALUES (${orgId}, ${blob.url}, ${primaryTitle}, ${rowCount}, ${JSON.stringify(primaryHeaders)})
       ON CONFLICT (org_id)
       DO UPDATE SET
         blob_url = EXCLUDED.blob_url,

@@ -101,6 +101,7 @@ export default function AnalysisPanel({
   onDeletePolicyScan,
   multiSelectMode = false,
   dataBatches = [],
+  onBatchFocus = null,
 }) {
   const [open, setOpen] = useState(false);
   const [checkedDistricts, setCheckedDistricts] = useState(new Set());
@@ -112,6 +113,11 @@ export default function AnalysisPanel({
     typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.35) : 310
   );
   const [selectedBatchId, setSelectedBatchId] = useState(null); // null = All Data
+
+  function handleBatchSelect(batchId) {
+    setSelectedBatchId(batchId);
+    onBatchFocus?.(batchId);
+  }
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
   const autoSizedForRef = useRef(null);
@@ -151,7 +157,7 @@ export default function AnalysisPanel({
   const filteredPoints = useMemo(() => applyFilters(effectiveEnrichedPoints, activeFilters), [effectiveEnrichedPoints, activeFilters]);
 
   // Reset filters when switching batches
-  useEffect(() => { setActiveFilters([]); }, [selectedBatchId]);
+  useEffect(() => { setActiveFilters([]); }, [selectedBatchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeFilters.length === 0) {
@@ -177,6 +183,19 @@ export default function AnalysisPanel({
     () => [...activeLayers].sort((a, b) => (SCOPE_ORDER[getScope(a)] ?? 99) - (SCOPE_ORDER[getScope(b)] ?? 99)),
     [activeLayers]
   );
+
+  // Per-batch district counts — only computed when All Data is active and multiple batches exist
+  const batchBreakdownByDistrict = useMemo(() => {
+    if (!activeChoroLayer || selectedBatchId !== null || dataBatches.length <= 1) return null;
+    const result = {};
+    for (const p of filteredPoints) {
+      const district = p[activeChoroLayer];
+      if (district == null) continue;
+      if (!result[district]) result[district] = {};
+      result[district][p._batchId] = (result[district][p._batchId] || 0) + 1;
+    }
+    return result;
+  }, [activeChoroLayer, selectedBatchId, filteredPoints, dataBatches.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = activeChoroLayer ? (layerSummary[activeChoroLayer] || []) : [];
   const unmatchedCount = activeChoroLayer
@@ -346,7 +365,7 @@ export default function AnalysisPanel({
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 8, flexWrap: 'wrap' }}>
               <button
                 style={batchPill(selectedBatchId === null, null)}
-                onClick={() => setSelectedBatchId(null)}
+                onClick={() => handleBatchSelect(null)}
               >
                 All Data
               </button>
@@ -354,7 +373,7 @@ export default function AnalysisPanel({
                 <button
                   key={batch.id}
                   style={batchPill(selectedBatchId === batch.id, batch.color)}
-                  onClick={() => setSelectedBatchId(batch.id)}
+                  onClick={() => handleBatchSelect(batch.id)}
                 >
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: batch.color, display: 'inline-block', flexShrink: 0 }} />
                   {batch.label}
@@ -490,7 +509,22 @@ export default function AnalysisPanel({
                           <td style={{ ...td, cursor: 'pointer', width: '100%' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
                             {row.districtName}
                           </td>
-                          <td style={{ ...td, minWidth: 84, textAlign: 'center', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.count.toLocaleString()}</td>
+                          <td style={{ ...td, minWidth: 84, textAlign: 'center', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {row.count.toLocaleString()}
+                            {batchBreakdownByDistrict && (
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 2, flexWrap: 'wrap' }}>
+                                {dataBatches.map(batch => {
+                                  const c = batchBreakdownByDistrict[row.districtName]?.[batch.id] ?? 0;
+                                  if (c === 0) return null;
+                                  return (
+                                    <span key={batch.id} style={{ fontSize: 10, fontWeight: 400, color: batch.color, whiteSpace: 'nowrap' }}>
+                                      ● {c}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ ...td, minWidth: 116, textAlign: 'center', color: '#7a8fa6', whiteSpace: 'nowrap' }}>{row.pct}%</td>
                           {activeChoroLayer === 'congressional' && (
                             <td style={{ ...td, whiteSpace: 'nowrap' }}>{renderRep(row.districtName, officials)}</td>
