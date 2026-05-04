@@ -1,9 +1,8 @@
 // POST /api/auth/provision
-// Creates org row after onboarding form submit. Sends welcome email via nodemailer.
+// Creates org row after onboarding form submit. Sends welcome email via Resend.
 import { getAuth } from '@clerk/nextjs/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
-import nodemailer from 'nodemailer';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -69,36 +68,38 @@ export default async function handler(req, res) {
 }
 
 async function sendWelcomeEmail({ personName, orgName, email, newsletterOptIn }) {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
+  if (!process.env.RESEND_API_KEY) return;
 
   const firstName = personName.split(' ')[0];
-
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
 
   const newsletterLine = newsletterOptIn
     ? `<p>You're subscribed to <strong>Making Space</strong>, our monthly memo on maps, data, and nonprofit strategy. Look for the next issue in your inbox.</p>`
     : `<p>If you'd ever like tips on maps, data, and nonprofit strategy, you can subscribe to <a href="https://www.north-arrow.org/newsletter-signup">Making Space</a>, our monthly memo.</p>`;
 
-  await transporter.sendMail({
-    from: `District Mapper <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: `Welcome to District Mapper, ${firstName}`,
-    html: `
-      <p>Hi ${firstName},</p>
-      <p>Welcome to District Mapper — you're all set.</p>
-      <p>Your account for <strong>${orgName}</strong> is ready. Upload your constituent or program data and start mapping your people to legislative districts in minutes.</p>
-      <p><a href="https://districts.north-arrow.org" style="background:#e63947;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;margin:8px 0">Open District Mapper →</a></p>
-      ${newsletterLine}
-      <p style="color:#555;font-size:13px;">District Mapper is currently in beta. If you run into anything unexpected or have ideas for improvement, we'd genuinely love to hear from you — just reply to this email or write to <a href="mailto:charles@north-arrow.org">charles@north-arrow.org</a>.</p>
-      <p>— The North Arrow team</p>
-    `,
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'District Mapper <noreply@north-arrow.org>',
+      to: email,
+      subject: `Welcome to District Mapper, ${firstName}`,
+      html: `
+        <p>Hi ${firstName},</p>
+        <p>Welcome to District Mapper — you're all set.</p>
+        <p>Your account for <strong>${orgName}</strong> is ready. Upload your constituent or program data and start mapping your people to legislative districts in minutes.</p>
+        <p><a href="https://districts.north-arrow.org" style="background:#e63947;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;margin:8px 0">Open District Mapper →</a></p>
+        ${newsletterLine}
+        <p style="color:#555;font-size:13px;">District Mapper is currently in beta. If you run into anything unexpected or have ideas for improvement, we'd genuinely love to hear from you — just reply to this email or write to <a href="mailto:charles@north-arrow.org">charles@north-arrow.org</a>.</p>
+        <p>— The North Arrow team</p>
+      `,
+    }),
   });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Resend error ${res.status}`);
+  }
 }
