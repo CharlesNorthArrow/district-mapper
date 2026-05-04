@@ -18,11 +18,14 @@ const ENTERPRISE_FEATURES = [
 ];
 
 export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
-  const [selectedPlan, setSelectedPlan] = useState(null); // null | 'pro' | 'enterprise'
+  const [showEnterpriseForm, setShowEnterpriseForm] = useState(false);
   const [form, setForm] = useState({ name: '', org: '', title: '', email: '', useCase: '' });
-  const [status, setStatus] = useState('idle'); // idle | submitting | success | error
+  const [formStatus, setFormStatus] = useState('idle'); // idle | submitting | success | error
   const [errorMsg, setErrorMsg] = useState('');
+  const [checkoutLoading, setCheckoutLoading] = useState(null); // null | 'monthly' | 'annual'
+  const [checkoutError, setCheckoutError] = useState('');
 
+  const [showCodeInput, setShowCodeInput] = useState(false);
   const [unlockInput, setUnlockInput] = useState('');
   const [unlockError, setUnlockError] = useState('');
   const [unlockSubmitting, setUnlockSubmitting] = useState(false);
@@ -32,14 +35,36 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  async function handleSubmit(e) {
+  async function handleSubscribe(plan) {
+    setCheckoutLoading(plan);
+    setCheckoutError('');
+    try {
+      const res = await fetch('/api/billing/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location = data.url;
+      } else {
+        setCheckoutError(data.error || 'Something went wrong — please try again.');
+        setCheckoutLoading(null);
+      }
+    } catch {
+      setCheckoutError('Something went wrong — please try again.');
+      setCheckoutLoading(null);
+    }
+  }
+
+  async function handleEnterpriseSubmit(e) {
     e.preventDefault();
     if (!form.name.trim() || !form.org.trim() || !form.title.trim() || !form.email.trim() || !form.useCase.trim()) {
       setErrorMsg('Please fill in all fields.');
       return;
     }
     setErrorMsg('');
-    setStatus('submitting');
+    setFormStatus('submitting');
     try {
       const res = await fetch('/api/request-upgrade', {
         method: 'POST',
@@ -50,10 +75,10 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Request failed');
       }
-      setStatus('success');
+      setFormStatus('success');
     } catch (err) {
       setErrorMsg(err.message || 'Something went wrong — please try again.');
-      setStatus('idle');
+      setFormStatus('idle');
     }
   }
 
@@ -63,7 +88,6 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
     setUnlockSubmitting(true);
     try {
       if (authProfile?.loggedIn) {
-        // Logged-in users: redeem a multi-use invite code
         const res = await fetch('/api/auth/redeem-code', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -78,7 +102,6 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
           setUnlockError(data.error || 'Invalid code.');
         }
       } else {
-        // Anonymous users: legacy password unlock
         const res = await fetch('/api/unlock', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -99,22 +122,19 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
     }
   }
 
-  function backToPlans() {
-    setSelectedPlan(null);
-    setErrorMsg('');
-    setStatus('idle');
-  }
-
   return (
     <div style={overlay}>
       <div style={modal}>
         <div style={modalHeader}>
-          <h2 style={modalTitle}>Upgrade District Mapper</h2>
+          <h2 style={modalTitle}>
+            {showEnterpriseForm ? 'Contact North Arrow' : 'Upgrade to Pro'}
+          </h2>
           <button style={closeBtn} onClick={onClose}>✕</button>
         </div>
 
         <div style={body}>
-          {status === 'success' ? (
+          {/* Enterprise form success */}
+          {formStatus === 'success' ? (
             <div style={successBox}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
               <p style={{ fontWeight: 700, fontSize: 15, color: '#166534', margin: '0 0 6px' }}>Request received!</p>
@@ -123,15 +143,13 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
               </p>
               <button style={primaryBtn} onClick={onClose}>Close</button>
             </div>
-          ) : selectedPlan ? (
+
+          /* Enterprise contact form */
+          ) : showEnterpriseForm ? (
             <>
-              <button style={backBtn} onClick={backToPlans}>← Back to plans</button>
-              <p style={hint}>
-                {selectedPlan === 'pro'
-                  ? "Tell us about yourself and we'll set up your Pro access."
-                  : "Tell us about your organization and we'll be in touch about Enterprise pricing."}
-              </p>
-              <form style={formWrap} onSubmit={handleSubmit}>
+              <button style={backBtn} onClick={() => { setShowEnterpriseForm(false); setErrorMsg(''); setFormStatus('idle'); }}>← Back to plans</button>
+              <p style={hint}>Tell us about your organization and we'll be in touch about Enterprise pricing.</p>
+              <form style={formWrap} onSubmit={handleEnterpriseSubmit}>
                 <div style={fieldGroup}>
                   <label style={fieldLabel}>Your name</label>
                   <input style={input} placeholder="Jane Smith" value={form.name} onChange={(e) => setField('name', e.target.value)} required autoFocus />
@@ -160,62 +178,95 @@ export default function UpgradeModal({ onClose, onUnlock, authProfile }) {
                 </div>
                 {errorMsg && <p style={errorStyle}>{errorMsg}</p>}
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button type="submit" style={primaryBtn} disabled={status === 'submitting'}>
-                    {status === 'submitting' ? 'Sending…' : 'Send Request'}
+                  <button type="submit" style={{ ...primaryBtn, background: '#1c3557' }} disabled={formStatus === 'submitting'}>
+                    {formStatus === 'submitting' ? 'Sending…' : 'Send Request'}
                   </button>
-                  <button type="button" style={cancelBtn} onClick={backToPlans}>Cancel</button>
+                  <button type="button" style={cancelBtn} onClick={() => { setShowEnterpriseForm(false); setErrorMsg(''); }}>Cancel</button>
                 </div>
               </form>
             </>
+
+          /* Main plan selection view */
           ) : (
             <>
-              <p style={hint}>Choose the plan that fits your needs.</p>
+              <p style={hint}>Subscribe to Pro and unlock all layers, AI analysis, and PDF export.</p>
+
               <div style={cardsRow}>
+                {/* Monthly */}
                 <div style={card}>
                   <div style={cardHeader}>
-                    <span style={cardTitle}>Pro</span>
-                    <span style={cardPrice}>$15 / month</span>
+                    <span style={cardTitle}>Monthly</span>
+                    <span style={cardPrice}>$10 / mo</span>
                   </div>
                   <ul style={featureList}>
                     {PRO_FEATURES.map((f) => (
                       <li key={f} style={featureItem}><span style={checkmark}>✓</span>{f}</li>
                     ))}
                   </ul>
-                  <button style={primaryBtn} onClick={() => setSelectedPlan('pro')}>
-                    Request Pro Access
+                  <button
+                    style={{ ...primaryBtn, opacity: checkoutLoading ? 0.7 : 1 }}
+                    disabled={!!checkoutLoading}
+                    onClick={() => handleSubscribe('monthly')}
+                  >
+                    {checkoutLoading === 'monthly' ? 'Redirecting…' : 'Subscribe Monthly'}
                   </button>
                 </div>
 
-                <div style={{ ...card, borderColor: '#1c3557' }}>
+                {/* Annual */}
+                <div style={{ ...card, borderColor: '#e63947' }}>
                   <div style={cardHeader}>
-                    <span style={cardTitle}>Enterprise</span>
-                    <span style={{ ...cardPrice, color: '#467c9d' }}>Contact us</span>
+                    <span style={cardTitle}>Annual</span>
+                    <span style={cardPrice}>$100 / yr</span>
                   </div>
+                  <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, marginTop: -8 }}>Save ~17%</div>
                   <ul style={featureList}>
-                    {ENTERPRISE_FEATURES.map((f) => (
+                    {PRO_FEATURES.map((f) => (
                       <li key={f} style={featureItem}><span style={checkmark}>✓</span>{f}</li>
                     ))}
                   </ul>
-                  <button style={{ ...primaryBtn, background: '#1c3557' }} onClick={() => setSelectedPlan('enterprise')}>
-                    Contact North Arrow
+                  <button
+                    style={{ ...primaryBtn, opacity: checkoutLoading ? 0.7 : 1 }}
+                    disabled={!!checkoutLoading}
+                    onClick={() => handleSubscribe('annual')}
+                  >
+                    {checkoutLoading === 'annual' ? 'Redirecting…' : 'Subscribe Annually'}
                   </button>
                 </div>
               </div>
 
-              <form onSubmit={handleUnlockSubmit} style={unlockRow}>
-                <input
-                  style={{ ...input, flex: 1, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}
-                  type="text"
-                  placeholder={authProfile?.loggedIn ? 'Have an invite code?' : 'Have an access code?'}
-                  value={unlockInput}
-                  onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(''); setUnlockSuccess(false); }}
-                />
-                <button type="submit" style={unlockBtn} disabled={!unlockInput.trim() || unlockSubmitting}>
-                  {unlockSubmitting ? '…' : 'Redeem'}
+              {checkoutError && <p style={errorStyle}>{checkoutError}</p>}
+
+              {/* Enterprise secondary option */}
+              <p style={{ fontSize: 12, color: '#7a8fa6', margin: 0, textAlign: 'center' }}>
+                Need unlimited rows or custom geographies?{' '}
+                <button style={linkBtn} onClick={() => setShowEnterpriseForm(true)}>
+                  Contact us about Enterprise →
                 </button>
-              </form>
-              {unlockSuccess && <p style={{ fontSize: 12, color: '#16a34a', margin: 0 }}>Code applied! Your plan has been upgraded.</p>}
-              {unlockError && <p style={errorStyle}>{unlockError}</p>}
+              </p>
+
+              {/* Code redemption toggle */}
+              <div style={{ borderTop: '1px solid #eef0f3', paddingTop: 12 }}>
+                <button style={linkBtn} onClick={() => setShowCodeInput((v) => !v)}>
+                  {showCodeInput ? 'Hide code entry' : 'Have a code?'}
+                </button>
+                {showCodeInput && (
+                  <form onSubmit={handleUnlockSubmit} style={{ ...unlockRow, marginTop: 8 }}>
+                    <input
+                      style={{ ...input, flex: 1, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}
+                      type="text"
+                      placeholder={authProfile?.loggedIn ? 'Enter invite code' : 'Enter access code'}
+                      value={unlockInput}
+                      onChange={(e) => { setUnlockInput(e.target.value); setUnlockError(''); setUnlockSuccess(false); }}
+                      autoFocus
+                    />
+                    <button type="submit" style={unlockBtn} disabled={!unlockInput.trim() || unlockSubmitting}>
+                      {unlockSubmitting ? '…' : 'Redeem'}
+                    </button>
+                  </form>
+                )}
+                {unlockSuccess && <p style={{ fontSize: 12, color: '#16a34a', margin: '6px 0 0' }}>Code applied! Your plan has been upgraded.</p>}
+                {unlockError && <p style={{ ...errorStyle, marginTop: 6 }}>{unlockError}</p>}
+              </div>
             </>
           )}
         </div>
@@ -232,6 +283,7 @@ const closeBtn = { background: 'none', border: 'none', fontSize: 18, cursor: 'po
 const body = { padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 };
 const hint = { fontSize: 13, color: '#4a5568', margin: 0 };
 const backBtn = { background: 'none', border: 'none', color: '#467c9d', cursor: 'pointer', fontSize: 12, padding: 0, textAlign: 'left' };
+const linkBtn = { background: 'none', border: 'none', color: '#467c9d', cursor: 'pointer', fontSize: 12, padding: 0, textDecoration: 'underline', fontFamily: "'Open Sans', sans-serif" };
 const cardsRow = { display: 'flex', gap: 12 };
 const card = { flex: 1, border: '1px solid #dde3ea', borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 };
 const cardHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' };

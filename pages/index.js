@@ -146,6 +146,30 @@ export default function Home() {
     } catch {}
   }, []);
 
+  // Handle Stripe redirect params: /?upgrade=success or /?upgrade=canceled
+  useEffect(() => {
+    const { upgrade } = router.query;
+    if (!upgrade) return;
+    router.replace('/', undefined, { shallow: true });
+    if (upgrade === 'success') {
+      setPersistMsg({ type: 'saved', text: "You're now on Pro! All features are unlocked." });
+      // Webhook may take 1–3s to fire — re-fetch tier after a short delay
+      setTimeout(async () => {
+        try {
+          const res = await fetch('/api/auth/me');
+          const data = await res.json();
+          if (data.tier === 'pro' || data.tier === 'enterprise') {
+            setAuthProfile(data);
+            setTierState(data.tier);
+            tierRef.current = data.tier;
+          }
+        } catch {}
+      }, 2000);
+    } else if (upgrade === 'canceled') {
+      setPersistMsg({ type: 'error', text: "Checkout was canceled — your plan hasn't changed." });
+    }
+  }, [router.query.upgrade]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleSavePolicyScan({ districtName, layerId, mission, bills }) {
     const scan = { id: Date.now(), districtName, layerId, mission, bills,
                    savedAt: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) };
@@ -1027,6 +1051,10 @@ export default function Home() {
                       {authProfile.tier}
                     </span>
                   )}
+                  <a href="/account" style={{
+                    fontSize: 11, color: '#7a8fa6', textDecoration: 'none',
+                    fontFamily: "'Open Sans', sans-serif",
+                  }}>Account</a>
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
