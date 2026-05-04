@@ -56,7 +56,7 @@ function buildPopupHTML(properties) {
   </div>`;
 }
 
-const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
+const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const addedLayers = useRef(new Set());
@@ -115,6 +115,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
       });
       map.on('mouseenter', 'uploaded-points', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'uploaded-points', () => { map.getCanvas().style.cursor = ''; });
+      onMapReady?.();
     });
 
     map.on('moveend', () => {
@@ -252,6 +253,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd }, ref) {
           ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
           : (entries[0]?.[1] ?? '#e63947');
         map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
+        map.triggerRepaint();
       };
 
       if (styleReadyRef.current) doUpdate();

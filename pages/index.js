@@ -120,6 +120,7 @@ export default function Home() {
   const [dataBatches, setDataBatches] = useState([]);   // [{ id, label, points, originalRows, headers, color }]
   const [hiddenBatches, setHiddenBatches] = useState(new Set());
   const [focusedBatchId, setFocusedBatchId] = useState(null); // null = all batches visible
+  const [mapReady, setMapReady] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
@@ -400,18 +401,9 @@ export default function Home() {
     mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
   }, [enrichedPoints, activeChoroLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync map point layer whenever batches or visibility changes (source of truth for the map)
+  // Single source of truth: sync map points whenever any relevant state changes
   useEffect(() => {
-    if (focusedBatchId) return; // focused-batch view handled below
-    if (dataBatches.length === 0) return;
-    const visibleBatches = dataBatches.filter(b => !hiddenBatches.has(b.id));
-    const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
-    const pts = visibleBatches.flatMap(b => b.points);
-    mapRef.current?.setPointLayer(pts, batchColors);
-  }, [dataBatches, hiddenBatches]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update map points + choropleth when user clicks a batch tab in AnalysisPanel
-  useEffect(() => {
+    if (!mapReady) return;
     if (dataBatches.length === 0) return;
     if (focusedBatchId) {
       const batch = dataBatches.find(b => b.id === focusedBatchId);
@@ -421,18 +413,23 @@ export default function Home() {
       const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
       mapRef.current?.setPointLayer(visibleBatches.flatMap(b => b.points), batchColors);
     }
-    if (activeChoroLayer && enrichedPoints.length > 0) {
-      const choroPts = focusedBatchId ? enrichedPoints.filter(p => p._batchId === focusedBatchId) : null;
-      const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer, choroPts);
-      const total = Object.values(counts).reduce((s, c) => s + c, 0);
-      mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
-    }
+  }, [dataBatches, hiddenBatches, focusedBatchId, mapReady]);
+
+  // Update choropleth when user clicks a batch tab in AnalysisPanel
+  useEffect(() => {
+    if (!activeChoroLayer || enrichedPoints.length === 0) return;
+    const choroPts = focusedBatchId ? enrichedPoints.filter(p => p._batchId === focusedBatchId) : null;
+    const { counts, plainCounts, districtField, stateField, color } = buildChoroData(activeChoroLayer, choroPts);
+    const total = Object.values(counts).reduce((s, c) => s + c, 0);
+    mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
   }, [focusedBatchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleUnlock(newTier) {
     setTier(newTier);
     setTierState(newTier);
   }
+
+  function handleMapReady() { setMapReady(true); }
 
   function handleMapMoveEnd({ center, zoom }) {
     try { localStorage.setItem('dm_last_extent', JSON.stringify({ center, zoom })); } catch {}
@@ -1199,7 +1196,7 @@ export default function Home() {
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
-          <MapView ref={mapRef} onMoveEnd={handleMapMoveEnd} />
+          <MapView ref={mapRef} onMoveEnd={handleMapMoveEnd} onMapReady={handleMapReady} />
           {processingStatus && <ProcessingBar status={processingStatus} />}
           {clerkLoaded && (
             <div style={{
