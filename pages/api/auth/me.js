@@ -2,6 +2,7 @@
 // Returns org profile + tier. Returns { tier: 'free', loggedIn: false } if not logged in.
 import { getAuth } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
+import { resolveTier } from '../../lib/resolveTier';
 
 export default async function handler(req, res) {
   const { userId } = getAuth(req);
@@ -12,7 +13,9 @@ export default async function handler(req, res) {
 
   try {
     const { rows } = await sql`
-      SELECT id, person_name, org_name, title, state, email, tier
+      SELECT id, person_name, org_name, title, state, email, tier,
+             subscription_status, subscription_price_id,
+             current_period_end, cancel_at_period_end
       FROM orgs
       WHERE clerk_user_id = ${userId}
     `;
@@ -22,6 +25,8 @@ export default async function handler(req, res) {
     }
 
     const org = rows[0];
+    const tier = await resolveTier(org);
+
     return res.status(200).json({
       loggedIn: true,
       orgId: org.id,
@@ -30,7 +35,10 @@ export default async function handler(req, res) {
       title: org.title,
       state: org.state,
       email: org.email,
-      tier: org.tier,
+      tier,
+      subscriptionStatus: org.subscription_status,
+      currentPeriodEnd: org.current_period_end,
+      cancelAtPeriodEnd: org.cancel_at_period_end,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
