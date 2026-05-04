@@ -505,20 +505,18 @@ export default function AnalysisPanel({
                             {row.districtName}
                           </td>
                           <td style={{ ...td, minWidth: 84, textAlign: 'center', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            {row.count.toLocaleString()}
-                            {batchBreakdownByDistrict && (
-                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 2, flexWrap: 'wrap' }}>
-                                {dataBatches.map(batch => {
-                                  const c = batchBreakdownByDistrict[row.districtName]?.[batch.id] ?? 0;
-                                  if (c === 0) return null;
-                                  return (
-                                    <span key={batch.id} style={{ fontSize: 10, fontWeight: 400, color: batch.color, whiteSpace: 'nowrap' }}>
-                                      ● {c}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              {row.count.toLocaleString()}
+                              {batchBreakdownByDistrict && dataBatches.map(batch => {
+                                const c = batchBreakdownByDistrict[row.districtName]?.[batch.id] ?? 0;
+                                if (c === 0) return null;
+                                return (
+                                  <span key={batch.id} style={{ fontSize: 10, fontWeight: 400, color: batch.color, whiteSpace: 'nowrap' }}>
+                                    ● {c}
+                                  </span>
+                                );
+                              })}
+                            </span>
                           </td>
                           <td style={{ ...td, minWidth: 116, textAlign: 'center', color: '#7a8fa6', whiteSpace: 'nowrap' }}>{row.pct}%</td>
                           {activeChoroLayer === 'congressional' && (
