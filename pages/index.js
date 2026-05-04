@@ -1,7 +1,8 @@
 import Head from 'next/head';
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
-import { useUser, useClerk, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
+import { useUser, useClerk, SignInButton, UserButton } from '@clerk/nextjs';
+import PreAuthModal from '../components/PreAuthModal';
 import MapView from '../components/MapView';
 import LayerPanel, { NATIONAL_LAYERS, STATE_LAYERS } from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
@@ -91,7 +92,8 @@ const mapActionBtn = {
 export default function Home() {
   const router = useRouter();
   const { isLoaded: clerkLoaded, isSignedIn } = useUser();
-  const { openSignUp } = useClerk();
+  const { openSignUp } = useClerk(); // kept for legacy paths
+  const [showPreAuthModal, setShowPreAuthModal] = useState(false);
   const mapRef = useRef(null);
   const customColorIndexRef = useRef(0);
   const uploadModeRef = useRef('overwrite');
@@ -981,7 +983,6 @@ export default function Home() {
           onCityLayerToggle={handleCityLayerToggle}
           onCustomLayer={handleCustomLayer}
           onUploadClick={(mode) => {
-            if (!isSignedIn) { openSignUp(); return; }
             uploadModeRef.current = mode;
             setShowUploadModal(true);
           }}
@@ -1058,16 +1059,17 @@ export default function Home() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <SignUpButton mode="modal">
-                    <button style={{
+                  <button
+                    onClick={() => setShowPreAuthModal(true)}
+                    style={{
                       background: '#e63947', color: '#fff', border: 'none',
                       borderRadius: 6, padding: '7px 16px', fontSize: 12,
                       fontWeight: 700, fontFamily: "'Open Sans', sans-serif",
                       cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                    }}>
-                      Sign up free
-                    </button>
-                  </SignUpButton>
+                    }}
+                  >
+                    Sign up free
+                  </button>
                   <SignInButton mode="modal">
                     <button style={{
                       background: 'transparent', color: '#1c3557', border: 'none',
@@ -1195,6 +1197,10 @@ export default function Home() {
           tier={tier}
           onOpenUpgrade={() => { setShowUploadModal(false); setShowUpgradeModal(true); }}
         />
+      )}
+
+      {showPreAuthModal && (
+        <PreAuthModal onClose={() => setShowPreAuthModal(false)} />
       )}
 
       {showUpgradeModal && (
