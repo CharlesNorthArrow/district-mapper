@@ -55,6 +55,7 @@ import { isLayerLocked } from '../lib/tierConfig';
 
 // Colors for successive program data batches
 const BATCH_COLORS = ['#e63947', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316'];
+const DEMO_COLOR = '#94a3b8';
 
 const mapLoadingBadge = {
   position: 'absolute',
@@ -112,7 +113,6 @@ export default function Home() {
   const tierRef = useRef(getTier());
   const layerFipsRef = useRef({});
   const isSignedInRef = useRef(false);
-  const autoReloadingRef = useRef(false);
   const [activeLayers, setActiveLayers] = useState([]);
   const [authProfile, setAuthProfile] = useState(null);
   const [layerColors, setLayerColors] = useState({});
@@ -157,6 +157,49 @@ export default function Home() {
     } catch {}
   }, []);
 
+  // Load demo dataset on first visit (unless hidden or real data already loaded)
+  function loadDemoDataset() {
+    fetch('/demo-dataset.json')
+      .then((r) => r.json())
+      .then((rawPoints) => {
+        const demoPoints = rawPoints.map((p, i) => ({
+          ...p,
+          _batchId: 'demo',
+          _globalIndex: 1000000 + i,
+          _datasetLabel: 'Demo Dataset',
+        }));
+        const demoBatch = {
+          id: 'demo',
+          label: 'Demo Dataset',
+          points: demoPoints,
+          originalRows: rawPoints,
+          headers: Object.keys(rawPoints[0] || {}),
+          color: DEMO_COLOR,
+          isDemo: true,
+        };
+        setDataBatches((prev) => {
+          if (prev.some((b) => !b.isDemo)) return prev;
+          return [demoBatch];
+        });
+        const lngs = demoPoints.map((p) => p.lng);
+        const lats = demoPoints.map((p) => p.lat);
+        if (!isSignedInRef.current) {
+          mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+        }
+      })
+      .catch(() => {});
+  }
+
+  function loadDefaultState() {
+    setSelectedStates(['New York']);
+    setSelectedCities(['nyc']);
+  }
+
+  // Always load demo dataset on mount (hidden by autoReloadDataset when real data exists)
+  useEffect(() => {
+    loadDemoDataset();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle Stripe redirect params: /?upgrade=success or /?upgrade=canceled
   useEffect(() => {
     const { upgrade, showUpgrade } = router.query;
@@ -184,7 +227,7 @@ export default function Home() {
     } else if (upgrade === 'canceled') {
       setPersistMsg({ type: 'error', text: "Checkout was canceled — your plan hasn't changed." });
     }
-  }, [router.query.upgrade]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [router.query.upgrade, router.query.showUpgrade]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSavePolicyScan({ districtName, layerId, mission, bills }) {
     const scan = { id: Date.now(), districtName, layerId, mission, bills,
@@ -208,6 +251,24 @@ export default function Home() {
     const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id));
     const batchColors = Object.fromEntries(visibleRemaining.map(b => [b.id, b.color]));
     mapRef.current?.setPointLayer(visibleRemaining.flatMap(b => b.points), batchColors);
+  }
+
+  function handleHideDemo() {
+    toggleBatchVisibility('demo');
+  }
+
+  function handleSelectedStatesChange(states) {
+    setSelectedStates(states);
+    if (isSignedInRef.current) {
+      try { localStorage.setItem('dm_selected_states', JSON.stringify(states)); } catch {}
+    }
+  }
+
+  function handleSelectedCitiesChange(cities) {
+    setSelectedCities(cities);
+    if (isSignedInRef.current) {
+      try { localStorage.setItem('dm_selected_cities', JSON.stringify(cities)); } catch {}
+    }
   }
 
   function toggleMultiSelectMode() {
@@ -337,6 +398,15 @@ export default function Home() {
     const total = Object.values(counts).reduce((s, c) => s + c, 0);
     mapRef.current?.setChoropleth(activeChoroLayer, counts, districtField, color, stateField, plainCounts, total);
   }, [enrichedPoints, activeChoroLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync map point layer whenever batches or visibility changes (source of truth for the map)
+  useEffect(() => {
+    if (focusedBatchId) return; // focused-batch view handled below
+    if (dataBatches.length === 0) return;
+    const visibleBatches = dataBatches.filter(b => !hiddenBatches.has(b.id));
+    const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
+    mapRef.current?.setPointLayer(visibleBatches.flatMap(b => b.points), batchColors);
+  }, [dataBatches, hiddenBatches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update map points + choropleth when user clicks a batch tab in AnalysisPanel
   useEffect(() => {
@@ -490,6 +560,8 @@ export default function Home() {
       setSelectedDistrict(null);
       setHiddenBatches(new Set());
       setAuthProfile(null);
+      setSelectedStates([]);
+      setSelectedCities([]);
       // Clear map visuals
       for (const layerId of activeLayersRef.current) {
         mapRef.current?.removeBoundaryLayer(layerId);
@@ -501,6 +573,13 @@ export default function Home() {
       hiddenBatchesRef.current = new Set();
       layerFipsRef.current = {};
       customColorIndexRef.current = 0;
+      // Clear persisted geography preferences for this user
+      try { localStorage.removeItem('dm_selected_states'); } catch {}
+      try { localStorage.removeItem('dm_selected_cities'); } catch {}
+      try { localStorage.removeItem('dm_last_extent'); } catch {}
+      // Restore default non-logged-in state: demo dataset + NY + NYC
+      loadDemoDataset();
+      loadDefaultState();
     }
     isSignedInRef.current = !!isSignedIn;
   }, [clerkLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -523,12 +602,24 @@ export default function Home() {
           setTierState(data.tier);
           tierRef.current = data.tier;
         }
-        // Restore last map extent (dataset auto-reload's fitBounds will override this if data exists)
-        if (savedExtentRef.current) {
-          mapRef.current?.flyTo(savedExtentRef.current);
-          savedExtentRef.current = null;
+        if (data.loggedIn) {
+          // Restore last map extent (dataset fitBounds will override if data exists)
+          if (savedExtentRef.current) {
+            mapRef.current?.flyTo(savedExtentRef.current);
+            savedExtentRef.current = null;
+          }
+          // Restore geography panel selections from previous session
+          try {
+            const savedStates = JSON.parse(localStorage.getItem('dm_selected_states') || 'null');
+            const savedCities = JSON.parse(localStorage.getItem('dm_selected_cities') || 'null');
+            if (Array.isArray(savedStates) && savedStates.length > 0) setSelectedStates(savedStates);
+            if (Array.isArray(savedCities) && savedCities.length > 0) setSelectedCities(savedCities);
+          } catch {}
+          autoReloadDataset();
+        } else {
+          // Non-logged-in visitor: default to NY + NYC
+          loadDefaultState();
         }
-        if (data.loggedIn) autoReloadDataset();
       } catch {}
     }
     loadAuthProfile();
@@ -544,32 +635,63 @@ export default function Home() {
         return;
       }
       const { dataset } = await res.json();
-      if (!dataset) { setPersistMsg(null); return; }
-
-      autoReloadingRef.current = true;
-
-      // v2 format: multiple batches
-      if (dataset.version === 2 && Array.isArray(dataset.batches) && dataset.batches.length > 0) {
-        for (let i = 0; i < dataset.batches.length; i++) {
-          const b = dataset.batches[i];
-          if (!b.points?.length) continue;
-          uploadModeRef.current = i === 0 ? 'overwrite' : 'add';
-          handleUploadComplete(b.points, b.originalRows ?? [], b.headers ?? [], null, b.title || `Dataset ${i + 1}`, 0);
-        }
-        uploadModeRef.current = 'overwrite';
-        const total = dataset.batches.reduce((s, b) => s + (b.points?.length ?? 0), 0);
-        setPersistMsg({ type: 'restored', text: `↺ ${dataset.batches.length} datasets restored (${total} records)` });
-      } else if (dataset.points?.length) {
-        // v1 format: single dataset
-        handleUploadComplete(dataset.points, dataset.originalRows ?? [], dataset.headers ?? [], null, dataset.title || dataset.filename || '', 0);
-        setPersistMsg({ type: 'restored', text: `↺ Dataset restored (${dataset.points.length} records)` });
-      } else {
-        setPersistMsg(null);
-        autoReloadingRef.current = false;
+      if (!dataset) {
+        setPersistMsg({ type: 'error', text: 'No saved dataset found — upload your data to get started.' });
+        setTimeout(() => setPersistMsg(null), 6000);
         return;
       }
 
-      autoReloadingRef.current = false;
+      // Build all batch objects synchronously from the loaded data
+      let newBatches = [];
+      if (dataset.version === 2 && Array.isArray(dataset.batches) && dataset.batches.length > 0) {
+        let globalOffset = 0;
+        for (const [i, b] of dataset.batches.entries()) {
+          if (!b.points?.length) continue;
+          const batchId = `batch-${newBatches.length}`;
+          const color = BATCH_COLORS[newBatches.length % BATCH_COLORS.length];
+          const label = b.title || `Dataset ${newBatches.length + 1}`;
+          const taggedPoints = b.points.map((p, j) => ({
+            ...p, _batchId: batchId, _globalIndex: globalOffset + j, _datasetLabel: label,
+          }));
+          globalOffset += b.points.length;
+          newBatches.push({ id: batchId, label, points: taggedPoints, originalRows: b.originalRows ?? [], headers: b.headers ?? [], color });
+        }
+      } else if (dataset.points?.length) {
+        const batchId = 'batch-0';
+        const label = dataset.title || dataset.filename || 'Dataset 1';
+        const taggedPoints = dataset.points.map((p, i) => ({
+          ...p, _batchId: batchId, _globalIndex: i, _datasetLabel: label,
+        }));
+        newBatches = [{ id: batchId, label, points: taggedPoints, originalRows: dataset.originalRows ?? [], headers: dataset.headers ?? [], color: BATCH_COLORS[0] }];
+      }
+
+      if (newBatches.length === 0) { setPersistMsg(null); return; }
+
+      // Single atomic state update — no loop, no intermediate renders
+      // Always mark demo as hidden when real data loads (harmless if demo isn't present)
+      hiddenBatchesRef.current = new Set(['demo']);
+      setHiddenBatches(new Set(['demo']));
+      setDataBatches((prev) => {
+        const prevDemo = prev.filter((b) => b.isDemo);
+        return [...prevDemo, ...newBatches];
+      });
+
+      // Directly paint user points on the map now — don't wait for the useEffect,
+      // which may fire before or after loadDemoDataset's concurrent fetch resolves.
+      const batchColors = Object.fromEntries(newBatches.map((b) => [b.id, b.color]));
+      mapRef.current?.setPointLayer(newBatches.flatMap((b) => b.points), batchColors);
+
+      // Fit map to all loaded data
+      const allPoints = newBatches.flatMap((b) => b.points);
+      const lngs = allPoints.map((p) => p.lng);
+      const lats = allPoints.map((p) => p.lat);
+      mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
+
+      const total = allPoints.length;
+      const countLabel = newBatches.length > 1
+        ? `↺ ${newBatches.length} datasets restored (${total} records)`
+        : `↺ Dataset restored (${total} records)`;
+      setPersistMsg({ type: 'restored', text: countLabel });
       setTimeout(() => setPersistMsg(null), 5000);
     } catch (err) {
       setPersistMsg({ type: 'error', text: `Restore error: ${err.message}` });
@@ -767,9 +889,6 @@ export default function Home() {
       if (next.has(batchId)) next.delete(batchId);
       else next.add(batchId);
       hiddenBatchesRef.current = next;
-      const visibleBatches = dataBatches.filter((b) => !next.has(b.id));
-      const batchColors = Object.fromEntries(visibleBatches.map((b) => [b.id, b.color]));
-      mapRef.current?.setPointLayer(visibleBatches.flatMap((b) => b.points), batchColors);
       return next;
     });
   }
@@ -905,9 +1024,20 @@ export default function Home() {
     let allVisiblePoints = [];
     let batchesToSave = null;
 
+    let demoBatchPresent = false;
+
     setDataBatches((prevBatches) => {
-      const batchIndex = isAdd ? prevBatches.length : 0;
-      const globalOffset = isAdd ? prevBatches.reduce((sum, b) => sum + b.points.length, 0) : 0;
+      const prevReal = prevBatches.filter((b) => !b.isDemo);
+      const prevDemo = prevBatches.filter((b) => b.isDemo);
+      demoBatchPresent = prevDemo.length > 0;
+
+      if (demoBatchPresent) {
+        // Auto-hide demo when real data arrives — session only, not persisted
+        hiddenBatchesRef.current = new Set([...hiddenBatchesRef.current, 'demo']);
+      }
+
+      const batchIndex = isAdd ? prevReal.length : 0;
+      const globalOffset = isAdd ? prevReal.reduce((sum, b) => sum + b.points.length, 0) : 0;
       const batchId = `batch-${batchIndex}`;
       const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
       const label = title || `Dataset ${batchIndex + 1}`;
@@ -920,17 +1050,19 @@ export default function Home() {
       }));
 
       const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
-      const newBatches = isAdd ? [...prevBatches, newBatch] : [newBatch];
-      batchesToSave = newBatches;
+      // Keep demo in state (greyed out in LayerPanel); only save real batches
+      const newBatches = isAdd ? [...prevDemo, ...prevReal, newBatch] : [...prevDemo, newBatch];
+      batchesToSave = newBatches.filter((b) => !b.isDemo);
 
-      // Update map point layer — respect any hidden batches
+      // Map is synced by the dataBatches/hiddenBatches useEffect after state settles
       const visibleBatches = newBatches.filter((b) => !hiddenBatchesRef.current.has(b.id));
-      const batchColors = Object.fromEntries(visibleBatches.map((b) => [b.id, b.color]));
-      mapRef.current?.setPointLayer(visibleBatches.flatMap((b) => b.points), batchColors);
       allVisiblePoints = visibleBatches.flatMap((b) => b.points);
 
       return newBatches;
     });
+
+    // Sync hiddenBatches state if demo was auto-hidden inside the updater
+    if (demoBatchPresent) setHiddenBatches(new Set(hiddenBatchesRef.current));
 
     // Fit map to show all visible points — done outside updater to avoid side effects
     if (allVisiblePoints.length > 0) {
@@ -942,8 +1074,7 @@ export default function Home() {
     setShowUploadModal(false);
 
     // Persist all batches for logged-in users.
-    // Guard: skip when called from autoReloadDataset (already loaded from blob — no need to re-save).
-    if (isSignedInRef.current && !autoReloadingRef.current && batchesToSave) {
+    if (isSignedInRef.current && batchesToSave) {
       setPersistMsg({ type: 'saving', text: 'Saving dataset…' });
       const payload = {
         version: 2,
@@ -1053,6 +1184,7 @@ export default function Home() {
           hiddenBatches={hiddenBatches}
           onToggleBatch={toggleBatchVisibility}
           onDeleteBatch={handleDeleteBatch}
+          onHideDemo={handleHideDemo}
           geoSuggestions={geoSuggestions}
           onAddressLookup={handleAddressLookup}
           onAddressSelect={handleAddressSelect}
@@ -1073,8 +1205,8 @@ export default function Home() {
           onToggleMultiSelect={toggleMultiSelectMode}
           selectedStates={selectedStates}
           selectedCities={selectedCities}
-          onSelectedStatesChange={setSelectedStates}
-          onSelectedCitiesChange={setSelectedCities}
+          onSelectedStatesChange={handleSelectedStatesChange}
+          onSelectedCitiesChange={handleSelectedCitiesChange}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
@@ -1218,39 +1350,43 @@ export default function Home() {
               Loading {LAYER_CONFIG[loadingLayer]?.displayName || loadingLayer}…
             </div>
           )}
-          {dataBatches.length > 0 && (
-            <AnalysisPanel
-              uploadedData={{
-                points: dataBatches.flatMap((b) => b.points),
-                originalRows: dataBatches.flatMap((b) => b.originalRows),
-                headers: dataBatches[0]?.headers ?? [],
-              }}
-              enrichedPoints={enrichedPoints}
-              activeLayers={activeLayers}
-              layerCounts={layerCounts}
-              layerColors={layerColors}
-              selectedDistrict={selectedDistrict}
-              onDistrictSelect={handleDistrictSelect}
-              onDistrictZoom={handleDistrictZoom}
-              activeChoroLayer={activeChoroLayer}
-              onChoroLayerSelect={handleChoroLayerSelect}
-              onFilteredIndicesChange={(indices) => {
-                if (indices === null) {
-                  mapRef.current?.clearPointFilter();
-                } else {
-                  mapRef.current?.filterPoints(indices);
-                }
-              }}
-              tier={tier}
-              onUpgradeClick={handleUpgradeClick}
-              savedPolicies={savedPolicies}
-              onSaveScan={handleSavePolicyScan}
-              onDeletePolicyScan={handleDeletePolicyScan}
-              multiSelectMode={multiSelectMode}
-              dataBatches={dataBatches}
-              onBatchFocus={setFocusedBatchId}
-            />
-          )}
+          {dataBatches.some((b) => !hiddenBatches.has(b.id)) && (() => {
+            const visibleBatches = dataBatches.filter((b) => !hiddenBatches.has(b.id));
+            const visibleEnrichedPoints = enrichedPoints.filter((p) => !hiddenBatches.has(p._batchId));
+            return (
+              <AnalysisPanel
+                uploadedData={{
+                  points: visibleBatches.flatMap((b) => b.points),
+                  originalRows: visibleBatches.flatMap((b) => b.originalRows),
+                  headers: visibleBatches.find((b) => !b.isDemo)?.headers ?? visibleBatches[0]?.headers ?? [],
+                }}
+                enrichedPoints={visibleEnrichedPoints}
+                activeLayers={activeLayers}
+                layerCounts={layerCounts}
+                layerColors={layerColors}
+                selectedDistrict={selectedDistrict}
+                onDistrictSelect={handleDistrictSelect}
+                onDistrictZoom={handleDistrictZoom}
+                activeChoroLayer={activeChoroLayer}
+                onChoroLayerSelect={handleChoroLayerSelect}
+                onFilteredIndicesChange={(indices) => {
+                  if (indices === null) {
+                    mapRef.current?.clearPointFilter();
+                  } else {
+                    mapRef.current?.filterPoints(indices);
+                  }
+                }}
+                tier={tier}
+                onUpgradeClick={handleUpgradeClick}
+                savedPolicies={savedPolicies}
+                onSaveScan={handleSavePolicyScan}
+                onDeletePolicyScan={handleDeletePolicyScan}
+                multiSelectMode={multiSelectMode}
+                dataBatches={visibleBatches}
+                onBatchFocus={setFocusedBatchId}
+              />
+            );
+          })()}
         </div>
       </div>
 
@@ -1279,7 +1415,7 @@ export default function Home() {
 
       {showExportDialog && (
         <ExportDialog
-          dataBatches={dataBatches}
+          dataBatches={dataBatches.filter((b) => !b.isDemo)}
           enrichedPoints={enrichedPoints}
           suggestedLayers={availableLayers}
           activeLayers={activeLayers}
