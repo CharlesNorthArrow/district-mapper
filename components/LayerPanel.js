@@ -269,12 +269,16 @@ export default function LayerPanel({
             North Arrow
           </a>
           {' · '}
-          <a
-            href="/policy"
-            style={styles.attributionLink}
-          >
-            Policy Pulse
-          </a>
+          {tier === 'pro' || tier === 'enterprise' ? (
+            <a href="/policy" style={styles.attributionLink}>Policy Pulse</a>
+          ) : (
+            <button
+              onClick={onUpgradeClick}
+              style={{ ...styles.attributionLink, background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}
+            >
+              Policy Pulse
+            </button>
+          )}
         </p>
       </div>
 

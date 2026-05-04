@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { pdf } from '@react-pdf/renderer';
 import BillFeed from '../components/PolicyPulse/BillFeed';
 import PolicyPDFDoc from '../components/PolicyPulse/PolicyPDF';
@@ -35,6 +36,22 @@ const inputStyle = {
 const errorStyle = { fontSize: 11, color: '#e63947', marginTop: 4 };
 
 export default function PolicyPage() {
+  const router = useRouter();
+  const [authStatus, setAuthStatus] = useState('loading'); // 'loading' | 'ok' | 'blocked'
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.loggedIn && (data.tier === 'pro' || data.tier === 'enterprise')) {
+          setAuthStatus('ok');
+        } else {
+          setAuthStatus('blocked');
+        }
+      })
+      .catch(() => setAuthStatus('blocked'));
+  }, []);
+
   const [mission,  setMission]  = useState('');
   const [state,    setState]    = useState('NY');
   const [body,     setBody]     = useState('state-senate');
@@ -141,6 +158,36 @@ export default function PolicyPage() {
     } finally {
       setPdfLoading(false);
     }
+  }
+
+  if (authStatus === 'loading') {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#f2f8ee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: '#7a8fa6', fontSize: 14 }}>Loading…</span>
+      </div>
+    );
+  }
+
+  if (authStatus === 'blocked') {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#f2f8ee', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'Open Sans', sans-serif", padding: 24 }}>
+        <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 4px 24px rgba(0,0,0,0.10)', padding: '40px 36px', maxWidth: 440, width: '100%', textAlign: 'center' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+          <h2 style={{ fontFamily: "'Poppins', sans-serif", color: '#1c3557', fontSize: 20, margin: '0 0 10px' }}>Policy Pulse is a Pro feature</h2>
+          <p style={{ color: '#555', fontSize: 14, lineHeight: 1.6, margin: '0 0 24px' }}>
+            Upgrade to Pro to scan state legislation, track bills by district, and download PDF reports.
+          </p>
+          <button
+            onClick={() => router.push('/?showUpgrade=true')}
+            style={{ background: '#e63947', color: '#fff', border: 'none', borderRadius: 6, padding: '11px 28px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Open Sans', sans-serif", marginBottom: 12 }}
+          >
+            Upgrade to Pro →
+          </button>
+          <br />
+          <a href="/" style={{ fontSize: 12, color: '#7a8fa6', textDecoration: 'none' }}>← Back to District Mapper</a>
+        </div>
+      </div>
+    );
   }
 
   return (
