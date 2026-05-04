@@ -31,6 +31,7 @@ export default function LayerPanel({
   hiddenBatches,
   onToggleBatch,
   onDeleteBatch,
+  onHideDemo,
   geoSuggestions,
   onAddressLookup,
   onAddressSelect,
@@ -69,6 +70,23 @@ export default function LayerPanel({
   // Keep a ref to activeLayers so effects can read it without being in their deps
   const activeLayersRef = useRef(activeLayers);
   useEffect(() => { activeLayersRef.current = activeLayers; }, [activeLayers]);
+
+  // Auto-open State/Local sections the first time they get content (e.g. session restore or defaults)
+  const didOpenState = useRef(false);
+  useEffect(() => {
+    if (!didOpenState.current && selectedStates.length > 0) {
+      didOpenState.current = true;
+      setOpenSections(prev => ({ ...prev, state: true }));
+    }
+  }, [selectedStates.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const didOpenLocal = useRef(false);
+  useEffect(() => {
+    if (!didOpenLocal.current && selectedCities.length > 0) {
+      didOpenLocal.current = true;
+      setOpenSections(prev => ({ ...prev, local: true }));
+    }
+  }, [selectedCities.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced autocomplete — calls Mapbox Geocoding API as user types
   useEffect(() => {
@@ -125,7 +143,7 @@ export default function LayerPanel({
   }
 
   function addState(name) {
-    setSelectedStates((prev) => prev.includes(name) ? prev : [...prev, name]);
+    setSelectedStates(selectedStates.includes(name) ? selectedStates : [...selectedStates, name]);
     setStateSearch('');
     setShowStateSearch(false);
     const bbox = STATE_BBOX[name];
@@ -133,11 +151,11 @@ export default function LayerPanel({
   }
 
   function removeState(name) {
-    setSelectedStates((prev) => prev.filter((s) => s !== name));
+    setSelectedStates(selectedStates.filter((s) => s !== name));
   }
 
   function addCity(slug) {
-    setSelectedCities((prev) => prev.includes(slug) ? prev : [...prev, slug]);
+    setSelectedCities(selectedCities.includes(slug) ? selectedCities : [...selectedCities, slug]);
     setCitySearch('');
     setShowCitySearch(false);
     const bbox = CITY_BBOX[slug];
@@ -150,7 +168,7 @@ export default function LayerPanel({
     for (const { slug: extraSlug } of CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []) {
       onCityLayerToggle(extraSlug, false);
     }
-    setSelectedCities((prev) => prev.filter((c) => c !== slug));
+    setSelectedCities(selectedCities.filter((c) => c !== slug));
   }
 
   function handleStateLayerCheck(layerId, checked) {
@@ -388,20 +406,34 @@ export default function LayerPanel({
             <div style={styles.sectionBody}>
               {dataBatches.map((batch) => (
                 <div key={batch.id} style={{ ...styles.layerRow, justifyContent: 'space-between' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, cursor: 'pointer', minWidth: 0 }}>
                     <input
                       type="checkbox"
                       checked={!hiddenBatches?.has(batch.id)}
-                      onChange={() => onToggleBatch?.(batch.id)}
+                      onChange={() => batch.isDemo ? onHideDemo?.() : onToggleBatch?.(batch.id)}
                     />
                     <span style={{ width: 10, height: 10, borderRadius: '50%', background: batch.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 13 }}>{batch.label}</span>
+                    <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{batch.label}</span>
+                    {batch.isDemo && (
+                      <span
+                        title="All member information in this dataset is completely made up — it exists for demonstration purposes only."
+                        style={{ fontSize: 11, color: '#94a3b8', cursor: 'help', flexShrink: 0, lineHeight: 1 }}
+                      >ℹ</span>
+                    )}
                   </label>
-                  <button
-                    onClick={() => onDeleteBatch?.(batch.id)}
-                    title="Delete this dataset"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#7a8fa6', padding: '0 0 0 6px', lineHeight: 1, flexShrink: 0 }}
-                  >✕</button>
+                  {batch.isDemo ? (
+                    <button
+                      onClick={() => onHideDemo?.()}
+                      title="Hide demo dataset"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#7a8fa6', padding: '0 0 0 6px', lineHeight: 1, flexShrink: 0 }}
+                    >👁</button>
+                  ) : (
+                    <button
+                      onClick={() => onDeleteBatch?.(batch.id)}
+                      title="Delete this dataset"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#7a8fa6', padding: '0 0 0 6px', lineHeight: 1, flexShrink: 0 }}
+                    >✕</button>
+                  )}
                 </div>
               ))}
             </div>

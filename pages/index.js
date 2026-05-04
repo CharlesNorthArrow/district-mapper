@@ -113,6 +113,7 @@ export default function Home() {
   const tierRef = useRef(getTier());
   const layerFipsRef = useRef({});
   const isSignedInRef = useRef(false);
+  const userDataLoadedRef = useRef(false); // true once autoReloadDataset has placed user data on the map
   const [activeLayers, setActiveLayers] = useState([]);
   const [authProfile, setAuthProfile] = useState(null);
   const [layerColors, setLayerColors] = useState({});
@@ -183,7 +184,7 @@ export default function Home() {
         });
         const lngs = demoPoints.map((p) => p.lng);
         const lats = demoPoints.map((p) => p.lat);
-        if (!isSignedInRef.current) {
+        if (!userDataLoadedRef.current) {
           mapRef.current?.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]);
         }
       })
@@ -669,17 +670,13 @@ export default function Home() {
 
       // Single atomic state update — no loop, no intermediate renders
       // Always mark demo as hidden when real data loads (harmless if demo isn't present)
+      userDataLoadedRef.current = true; // block demo fitBounds from overriding user data viewport
       hiddenBatchesRef.current = new Set(['demo']);
       setHiddenBatches(new Set(['demo']));
       setDataBatches((prev) => {
         const prevDemo = prev.filter((b) => b.isDemo);
         return [...prevDemo, ...newBatches];
       });
-
-      // Directly paint user points on the map now — don't wait for the useEffect,
-      // which may fire before or after loadDemoDataset's concurrent fetch resolves.
-      const batchColors = Object.fromEntries(newBatches.map((b) => [b.id, b.color]));
-      mapRef.current?.setPointLayer(newBatches.flatMap((b) => b.points), batchColors);
 
       // Fit map to all loaded data
       const allPoints = newBatches.flatMap((b) => b.points);
