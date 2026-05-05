@@ -476,7 +476,10 @@ export default function AnalysisPanel({
                         <input ref={selectAllRef} type="checkbox" onChange={toggleSelectAll} title="Select all districts" />
                       </th>
                       <th style={th}>District</th>
-                      <th style={{ ...th, minWidth: 84, textAlign: 'center', whiteSpace: 'nowrap' }}>#</th>
+                      <th style={{ ...th, minWidth: 60, textAlign: 'center', whiteSpace: 'nowrap' }}>#</th>
+                      {batchBreakdownByDistrict && (
+                        <th style={{ ...th, textAlign: 'center', whiteSpace: 'nowrap', color: '#9aabb8', fontWeight: 500, fontSize: 11 }}>by dataset</th>
+                      )}
                       <th style={{ ...th, minWidth: 116, textAlign: 'center', whiteSpace: 'nowrap' }}>%</th>
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, minWidth: 155, whiteSpace: 'nowrap' }}>Representative</th>}
                       {activeChoroLayer === 'congressional' && <th style={{ ...th, width: 62, textAlign: 'center', whiteSpace: 'nowrap' }}>Party</th>}
@@ -504,20 +507,24 @@ export default function AnalysisPanel({
                           <td style={{ ...td, cursor: 'pointer', width: '100%' }} onClick={() => onDistrictSelect(activeChoroLayer, row.districtName)}>
                             {row.districtName}
                           </td>
-                          <td style={{ ...td, minWidth: 84, textAlign: 'center', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                              {row.count.toLocaleString()}
-                              {batchBreakdownByDistrict && dataBatches.map(batch => {
-                                const c = batchBreakdownByDistrict[row.districtName]?.[batch.id] ?? 0;
-                                if (c === 0) return null;
-                                return (
-                                  <span key={batch.id} style={{ fontSize: 10, fontWeight: 400, color: batch.color, whiteSpace: 'nowrap' }}>
-                                    ● {c}
-                                  </span>
-                                );
-                              })}
-                            </span>
+                          <td style={{ ...td, minWidth: 60, textAlign: 'center', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {row.count.toLocaleString()}
                           </td>
+                          {batchBreakdownByDistrict && (
+                            <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {dataBatches.map((batch) => {
+                                  const c = batchBreakdownByDistrict[row.districtName]?.[batch.id] ?? 0;
+                                  if (c === 0) return null;
+                                  return (
+                                    <span key={batch.id} style={{ fontSize: 11, fontWeight: 500, color: batch.color, whiteSpace: 'nowrap' }}>
+                                      ● {c.toLocaleString()}
+                                    </span>
+                                  );
+                                })}
+                              </span>
+                            </td>
+                          )}
                           <td style={{ ...td, minWidth: 116, textAlign: 'center', color: '#7a8fa6', whiteSpace: 'nowrap' }}>{row.pct}%</td>
                           {activeChoroLayer === 'congressional' && (
                             <td style={{ ...td, whiteSpace: 'nowrap' }}>{renderRep(row.districtName, officials)}</td>

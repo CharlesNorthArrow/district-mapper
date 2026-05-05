@@ -546,45 +546,44 @@ export default function Home() {
     }
   }, [activeLayers]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { tierRef.current = tier; }, [tier]);
-  useEffect(() => {
-    // Only track sign-in state when Clerk is fully loaded — if we update the ref while
-    // clerkLoaded=false (Clerk's intermediate state during sign-out), it resets to false
-    // and the sign-out detection condition never fires.
-    if (!clerkLoaded) return;
+  // Keep isSignedInRef current — used as a guard in async functions to detect
+  // if the user signed out while a fetch was in flight.
+  useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
 
-    if (isSignedInRef.current && !isSignedIn) {
-      // Clear React state
-      setDataBatches([]);
-      setEnrichedPoints([]);
-      setActiveLayers([]);
-      setLayerGeojson({});
-      setLayerColors({});
-      setActiveChoroLayer(null);
-      setSelectedDistrict(null);
-      setHiddenBatches(new Set());
-      setAuthProfile(null);
-      setSelectedStates([]);
-      setSelectedCities([]);
-      // Clear map visuals
-      for (const layerId of activeLayersRef.current) {
-        mapRef.current?.removeBoundaryLayer(layerId);
-      }
-      mapRef.current?.setPointLayer([], {});
-      // Reset refs
-      authProfileRef.current = null;
-      activeLayersRef.current = [];
-      hiddenBatchesRef.current = new Set();
-      layerFipsRef.current = {};
-      customColorIndexRef.current = 0;
-      // Clear persisted geography preferences for this user
-      try { localStorage.removeItem('dm_selected_states'); } catch {}
-      try { localStorage.removeItem('dm_selected_cities'); } catch {}
-      try { localStorage.removeItem('dm_last_extent'); } catch {}
-      // Restore default non-logged-in state: demo dataset + NY + NYC
-      loadDemoDataset();
-      loadDefaultState();
+  // Invariant: when Clerk is fully loaded and the user is signed out, no user data
+  // should be visible. Using an invariant (not transition detection) makes this robust
+  // against Clerk's intermediate isLoaded=false states and any navigation pattern.
+  // Safe on initial anonymous page load — dataBatches and activeLayers are empty then.
+  useEffect(() => {
+    if (!clerkLoaded || isSignedIn) return;
+    const hasUserData = dataBatches.some((b) => !b.isDemo) || activeLayers.length > 0;
+    if (!hasUserData) return;
+    // User data present but signed out — clear it
+    for (const layerId of activeLayersRef.current) {
+      mapRef.current?.removeBoundaryLayer(layerId);
     }
-    isSignedInRef.current = !!isSignedIn;
+    mapRef.current?.setPointLayer([], {});
+    setDataBatches((prev) => prev.filter((b) => b.isDemo));
+    setEnrichedPoints([]);
+    setActiveLayers([]);
+    setLayerGeojson({});
+    setLayerColors({});
+    setActiveChoroLayer(null);
+    setSelectedDistrict(null);
+    setHiddenBatches(new Set());
+    setAuthProfile(null);
+    setSelectedStates([]);
+    setSelectedCities([]);
+    authProfileRef.current = null;
+    activeLayersRef.current = [];
+    hiddenBatchesRef.current = new Set();
+    layerFipsRef.current = {};
+    customColorIndexRef.current = 0;
+    try { localStorage.removeItem('dm_selected_states'); } catch {}
+    try { localStorage.removeItem('dm_selected_cities'); } catch {}
+    try { localStorage.removeItem('dm_last_extent'); } catch {}
+    loadDemoDataset();
+    loadDefaultState();
   }, [clerkLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch auth profile once Clerk has loaded; sync tier and auto-reload saved dataset if logged in
