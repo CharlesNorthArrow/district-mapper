@@ -105,8 +105,8 @@ export default function PrivacyPage() {
             <ServiceRow
               name="Anthropic (Claude)"
               url="https://www.anthropic.com/legal/privacy"
-              what='Used only when you click "Plain Language Analysis" in the Analysis tab. Up to 15 sample rows of your dataset and aggregated district counts are sent to Anthropic\'s Claude API to generate a plain-language summary.'
-              constituent='A small sample of your constituent data is sent to Anthropic when you explicitly use the AI Analysis feature. Anthropic\'s API usage policy prohibits using API-submitted data to train their models. We do not send your data to Anthropic for any other reason.'
+              what={`Used only when you click "Plain Language Analysis" in the Analysis tab. Up to 15 sample rows of your dataset and aggregated district counts are sent to Anthropic's Claude API to generate a plain-language summary.`}
+              constituent={`A small sample of your constituent data is sent to Anthropic when you explicitly use the AI Analysis feature. Anthropic's API usage policy prohibits using API-submitted data to train their models. We do not send your data to Anthropic for any other reason.`}
             />
           </Section>
 
