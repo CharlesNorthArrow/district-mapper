@@ -103,18 +103,11 @@ export default function PrivacyPage() {
               what="Used to convert street addresses into coordinates (geocoding) when you upload an address-based dataset. Addresses are sent to Mapbox's API through our server — your browser never contacts Mapbox directly."
               constituent="Street addresses are sent to Mapbox during the geocoding step. Per Mapbox's API terms, they do not retain or use geocoded address data submitted via the API."
             />
-            <ServiceRow
-              name="Anthropic (Claude)"
-              url="https://www.anthropic.com/legal/privacy"
-              what={`Used only when you click "Plain Language Analysis" in the Analysis tab. Up to 15 sample rows of your dataset and aggregated district counts are sent to Anthropic's Claude API to generate a plain-language summary.`}
-              constituent={`A small sample of your constituent data is sent to Anthropic when you explicitly use the AI Analysis feature. Anthropic's API usage policy prohibits using API-submitted data to train their models. We do not send your data to Anthropic for any other reason.`}
-            />
           </Section>
 
           <Section title="What we will never do">
             <ul style={styles.ul}>
               <li style={styles.li}>Sell, share, rent, or monetize your constituent data — to anyone, for any price.</li>
-              <li style={styles.li}>Use your uploaded data to train AI models, whether our own or a third party's.</li>
               <li style={styles.li}>Access your constituent data for our own analysis, research, or product development.</li>
               <li style={styles.li}>Provide your data to government agencies, law enforcement, or other organizations unless legally compelled and after notifying you (if permitted).</li>
             </ul>
