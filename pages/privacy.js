@@ -9,6 +9,7 @@ export default function PrivacyPage() {
       <Head>
         <title>Data & Privacy Policy — District Mapper</title>
         <meta name="description" content="How District Mapper handles your constituent data" />
+        <style>{`body { overflow: auto !important; }`}</style>
       </Head>
 
       <div style={styles.page}>
