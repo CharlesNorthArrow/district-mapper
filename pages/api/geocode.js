@@ -3,6 +3,8 @@
 // Returns: [{ address, lat, lng, confidence }]
 // Batches in groups of 50 and proxies to Mapbox Geocoding API.
 
+import { getAuth } from '@clerk/nextjs/server';
+
 const BATCH_SIZE = 50;
 
 async function geocodeBatch(addresses) {
@@ -34,6 +36,9 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  const { userId } = getAuth(req);
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const { addresses } = req.body;
   if (!Array.isArray(addresses) || addresses.length === 0) {

@@ -151,6 +151,7 @@ export default function Home() {
   const multiSelectModeRef = useRef(false);
   const isMobile = useIsMobile();
   const [mobileBypass, setMobileBypass] = useState(false);
+  const [batchToDelete, setBatchToDelete] = useState(null);
 
   // Read localStorage after mount to avoid SSR/client hydration mismatch
   useEffect(() => {
@@ -252,12 +253,43 @@ export default function Home() {
   }
 
   function handleDeleteBatch(batchId) {
+    setBatchToDelete(batchId);
+  }
+
+  function handleConfirmDeleteBatch() {
+    const batchId = batchToDelete;
+    setBatchToDelete(null);
     const remaining = dataBatches.filter(b => b.id !== batchId);
     setDataBatches(remaining);
     setHiddenBatches(prev => { const next = new Set(prev); next.delete(batchId); return next; });
-    const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id));
+    const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id) && b.id !== batchId);
     const batchColors = Object.fromEntries(visibleRemaining.map(b => [b.id, b.color]));
     mapRef.current?.setPointLayer(visibleRemaining.flatMap(b => b.points), batchColors);
+
+    if (isSignedInRef.current) {
+      const realRemaining = remaining.filter(b => !b.isDemo);
+      const payload = {
+        version: 2,
+        batches: realRemaining.map(b => ({
+          points: b.points,
+          originalRows: b.originalRows,
+          headers: b.headers,
+          title: b.label,
+          color: b.color,
+        })),
+      };
+      setPersistMsg({ type: 'saving', text: 'Deleting dataset…' });
+      fetch('/api/auth/save-dataset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(r => {
+          if (r.ok) setPersistMsg({ type: 'saved', text: '✓ Dataset permanently deleted' });
+          else setPersistMsg({ type: 'error', text: 'Delete failed — please try again' });
+        })
+        .catch(() => setPersistMsg({ type: 'error', text: 'Delete failed — please try again' }));
+    }
   }
 
   function handleHideDemo() {
@@ -1409,6 +1441,28 @@ export default function Home() {
           authProfile={authProfile}
         />
       )}
+
+      {batchToDelete && (() => {
+        const batch = dataBatches.find(b => b.id === batchToDelete);
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{ background: '#fff', borderRadius: 12, padding: '24px 24px 20px', maxWidth: 380, width: '100%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', fontFamily: "'Open Sans', sans-serif" }}>
+              <p style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 16, color: '#1c3557', marginBottom: 10 }}>Delete dataset?</p>
+              <p style={{ fontSize: 13, color: '#4a5568', lineHeight: 1.6, marginBottom: 20 }}>
+                <strong>{batch?.label || 'This dataset'}</strong> will be permanently removed from our servers. This cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button onClick={() => setBatchToDelete(null)} style={{ background: 'none', border: '1px solid #dde3ea', borderRadius: 6, padding: '8px 16px', fontSize: 13, color: '#4a5568', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleConfirmDeleteBatch} style={{ background: '#e63947', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                  Delete permanently
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showTour && <TourOverlay onClose={() => setShowTour(false)} />}
 

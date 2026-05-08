@@ -12,6 +12,7 @@ export default function Onboarding() {
     title: '',
     state: '',
     newsletterOptIn: true,
+    privacyAccepted: false,
   });
   const [inviteCode, setInviteCode] = useState('');
   const [showCodeInput, setShowCodeInput] = useState(false);
@@ -41,6 +42,10 @@ export default function Onboarding() {
   async function handleSubmit() {
     if (!form.personName || !form.orgName || !form.title || !form.state) {
       setError('All fields are required.');
+      return;
+    }
+    if (!form.privacyAccepted) {
+      setError('Please acknowledge the data policy to continue.');
       return;
     }
     setLoading(true);
@@ -148,6 +153,19 @@ export default function Onboarding() {
             />
           )}
         </div>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 20, cursor: 'pointer', fontSize: 13, color: '#555', lineHeight: 1.5 }}>
+          <input
+            type="checkbox"
+            checked={form.privacyAccepted}
+            onChange={(e) => set('privacyAccepted', e.target.checked)}
+            style={{ marginTop: 3, flexShrink: 0 }}
+          />
+          I understand that data I upload will be stored securely and used only to provide this service.{' '}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: '#467c9d' }}>
+            Read our data policy →
+          </a>
+        </label>
 
         {error && <p style={{ color: '#e63947', fontSize: 13, marginBottom: 12 }}>{error}</p>}
 

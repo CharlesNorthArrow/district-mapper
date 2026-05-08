@@ -1,6 +1,7 @@
 export const maxDuration = 60;
 
 import Anthropic from '@anthropic-ai/sdk';
+import { getAuth } from '@clerk/nextjs/server';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -8,6 +9,9 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  const { userId } = getAuth(req);
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const { totalPoints, headers, sampleRows, layers } = req.body;
 

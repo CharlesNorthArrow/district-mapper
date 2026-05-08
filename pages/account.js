@@ -135,6 +135,11 @@ export default function AccountPage() {
             <div style={sectionLabel}>Account</div>
             <p style={infoText}>{profile.email}</p>
           </div>
+
+          <div style={section}>
+            <div style={sectionLabel}>Legal</div>
+            <a href="/privacy" style={{ fontSize: 13, color: '#467c9d', textDecoration: 'none' }}>Data &amp; Privacy Policy →</a>
+          </div>
         </div>
       </div>
     </>
