@@ -3,6 +3,8 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useUser, useClerk, SignInButton, UserButton } from '@clerk/nextjs';
 import PreAuthModal from '../components/PreAuthModal';
+import MobileLanding from '../components/MobileLanding';
+import useIsMobile from '../hooks/useIsMobile';
 import MapView from '../components/MapView';
 import LayerPanel, { NATIONAL_LAYERS, STATE_LAYERS } from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
@@ -55,7 +57,7 @@ import { isLayerLocked } from '../lib/tierConfig';
 
 // Colors for successive program data batches
 const BATCH_COLORS = ['#e63947', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316'];
-const DEMO_COLOR = '#94a3b8';
+const DEMO_COLOR = '#64748b';
 
 const mapLoadingBadge = {
   position: 'absolute',
@@ -113,6 +115,7 @@ export default function Home() {
   const tierRef = useRef(getTier());
   const layerFipsRef = useRef({});
   const isSignedInRef = useRef(false);
+  const dataBatchesRef = useRef([]);
   const userDataLoadedRef = useRef(false); // true once autoReloadDataset has placed user data on the map
   const [activeLayers, setActiveLayers] = useState([]);
   const [authProfile, setAuthProfile] = useState(null);
@@ -146,6 +149,8 @@ export default function Home() {
   const [selectedCities, setSelectedCities] = useState([]);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const multiSelectModeRef = useRef(false);
+  const isMobile = useIsMobile();
+  const [mobileBypass, setMobileBypass] = useState(false);
 
   // Read localStorage after mount to avoid SSR/client hydration mismatch
   useEffect(() => {
@@ -549,6 +554,7 @@ export default function Home() {
   // Keep isSignedInRef current — used as a guard in async functions to detect
   // if the user signed out while a fetch was in flight.
   useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
+  useEffect(() => { dataBatchesRef.current = dataBatches; }, [dataBatches]);
 
   // Invariant: when Clerk is fully loaded and the user is signed out, no user data
   // should be visible. Using an invariant (not transition detection) makes this robust
@@ -605,8 +611,6 @@ export default function Home() {
           tierRef.current = data.tier;
         }
         if (data.loggedIn) {
-          // Guard: abort if user signed out while this fetch was in flight
-          if (!isSignedInRef.current) return;
           // Restore last map extent (dataset fitBounds will override if data exists)
           if (savedExtentRef.current) {
             mapRef.current?.flyTo(savedExtentRef.current);
@@ -1027,31 +1031,31 @@ export default function Home() {
       setHiddenBatches(new Set(hiddenBatchesRef.current));
     }
 
-    let batchesToSave = null;
+    // Compute the new batch and save payload before the state updater runs.
+    // React 18 updater functions run during the render phase, not synchronously,
+    // so batchesToSave must be computed here where it is available synchronously.
+    const prevReal = dataBatchesRef.current.filter((b) => !b.isDemo);
+    const batchIndex = isAdd ? prevReal.length : 0;
+    const globalOffset = isAdd ? prevReal.reduce((sum, b) => sum + b.points.length, 0) : 0;
+    const batchId = `batch-${batchIndex}`;
+    const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
+    const label = title || `Dataset ${batchIndex + 1}`;
+
+    const taggedPoints = points.map((p, i) => ({
+      ...p,
+      _batchId: batchId,
+      _globalIndex: globalOffset + i,
+      _datasetLabel: label,
+    }));
+
+    const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
+    const batchesToSave = isAdd ? [...prevReal, newBatch] : [newBatch];
 
     setDataBatches((prevBatches) => {
-      const prevReal = prevBatches.filter((b) => !b.isDemo);
       const prevDemo = prevBatches.filter((b) => b.isDemo);
-
-      const batchIndex = isAdd ? prevReal.length : 0;
-      const globalOffset = isAdd ? prevReal.reduce((sum, b) => sum + b.points.length, 0) : 0;
-      const batchId = `batch-${batchIndex}`;
-      const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
-      const label = title || `Dataset ${batchIndex + 1}`;
-
-      const taggedPoints = points.map((p, i) => ({
-        ...p,
-        _batchId: batchId,
-        _globalIndex: globalOffset + i,
-        _datasetLabel: label,
-      }));
-
-      const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
-      // Keep demo in state (greyed out in LayerPanel); only save real batches
-      const newBatches = isAdd ? [...prevDemo, ...prevReal, newBatch] : [...prevDemo, newBatch];
-      batchesToSave = newBatches.filter((b) => !b.isDemo);
-
-      return newBatches;
+      return isAdd
+        ? [...prevDemo, ...prevBatches.filter((b) => !b.isDemo), newBatch]
+        : [...prevDemo, newBatch];
     });
 
     // Fit map to the newly uploaded points — use `points` directly since the
@@ -1144,6 +1148,10 @@ export default function Home() {
     }
     setGeoSuggestions({ states: loadedStates, cities: geos.cities ?? [] });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (isMobile && !mobileBypass) {
+    return <MobileLanding onContinue={() => setMobileBypass(true)} />;
+  }
 
   return (
     <>
