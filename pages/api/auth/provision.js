@@ -50,12 +50,16 @@ export default async function handler(req, res) {
     `;
     const orgId = orgRows[0].id;
 
-    // Record code redemption if a code was used
+    // Record code redemption and apply tier if a code was used.
+    // The tier UPDATE runs unconditionally when a valid code is present so that
+    // re-submissions of the onboarding form (which hit ON CONFLICT above) still
+    // apply the correct tier — the INSERT alone won't update it on conflict.
     if (codeId) {
       await sql`
         INSERT INTO code_redemptions (code_id, org_id) VALUES (${codeId}, ${orgId})
         ON CONFLICT (org_id) DO NOTHING
       `;
+      await sql`UPDATE orgs SET tier = ${tier} WHERE id = ${orgId}`;
     }
 
     // Send welcome email — fire and forget
