@@ -115,6 +115,7 @@ export default function Home() {
   const tierRef = useRef(getTier());
   const layerFipsRef = useRef({});
   const isSignedInRef = useRef(false);
+  const prevIsSignedInRef = useRef(null);
   const dataBatchesRef = useRef([]);
   const userDataLoadedRef = useRef(false); // true once autoReloadDataset has placed user data on the map
   const [activeLayers, setActiveLayers] = useState([]);
@@ -586,6 +587,19 @@ export default function Home() {
   // Keep isSignedInRef current — used as a guard in async functions to detect
   // if the user signed out while a fetch was in flight.
   useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
+
+  // When a signed-in user signs out, force a hard reload so Clerk re-initialises cleanly.
+  // afterSignOutUrl="/" can silently skip navigation when already on /, leaving clerkLoaded
+  // briefly false and the auth UI permanently hidden.
+  useEffect(() => {
+    if (!clerkLoaded) return;
+    if (prevIsSignedInRef.current === true && isSignedIn === false) {
+      window.location.replace('/');
+      return;
+    }
+    prevIsSignedInRef.current = isSignedIn;
+  }, [clerkLoaded, isSignedIn]);
+
   useEffect(() => { dataBatchesRef.current = dataBatches; }, [dataBatches]);
 
   // Invariant: when Clerk is fully loaded and the user is signed out, no user data
