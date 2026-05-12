@@ -3,6 +3,8 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useUser, useClerk, SignInButton, UserButton } from '@clerk/nextjs';
 import PreAuthModal from '../components/PreAuthModal';
+import MobileLanding from '../components/MobileLanding';
+import useIsMobile from '../hooks/useIsMobile';
 import MapView from '../components/MapView';
 import LayerPanel, { NATIONAL_LAYERS, STATE_LAYERS } from '../components/LayerPanel';
 import UploadModal from '../components/UploadModal';
@@ -55,7 +57,7 @@ import { isLayerLocked } from '../lib/tierConfig';
 
 // Colors for successive program data batches
 const BATCH_COLORS = ['#e63947', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316'];
-const DEMO_COLOR = '#94a3b8';
+const DEMO_COLOR = '#64748b';
 
 const mapLoadingBadge = {
   position: 'absolute',
@@ -113,6 +115,8 @@ export default function Home() {
   const tierRef = useRef(getTier());
   const layerFipsRef = useRef({});
   const isSignedInRef = useRef(false);
+  const prevIsSignedInRef = useRef(null);
+  const dataBatchesRef = useRef([]);
   const userDataLoadedRef = useRef(false); // true once autoReloadDataset has placed user data on the map
   const [activeLayers, setActiveLayers] = useState([]);
   const [authProfile, setAuthProfile] = useState(null);
@@ -146,6 +150,9 @@ export default function Home() {
   const [selectedCities, setSelectedCities] = useState([]);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const multiSelectModeRef = useRef(false);
+  const isMobile = useIsMobile();
+  const [mobileBypass, setMobileBypass] = useState(false);
+  const [batchToDelete, setBatchToDelete] = useState(null);
 
   // Read localStorage after mount to avoid SSR/client hydration mismatch
   useEffect(() => {
@@ -247,12 +254,43 @@ export default function Home() {
   }
 
   function handleDeleteBatch(batchId) {
+    setBatchToDelete(batchId);
+  }
+
+  function handleConfirmDeleteBatch() {
+    const batchId = batchToDelete;
+    setBatchToDelete(null);
     const remaining = dataBatches.filter(b => b.id !== batchId);
     setDataBatches(remaining);
     setHiddenBatches(prev => { const next = new Set(prev); next.delete(batchId); return next; });
-    const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id));
+    const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id) && b.id !== batchId);
     const batchColors = Object.fromEntries(visibleRemaining.map(b => [b.id, b.color]));
     mapRef.current?.setPointLayer(visibleRemaining.flatMap(b => b.points), batchColors);
+
+    if (isSignedInRef.current) {
+      const realRemaining = remaining.filter(b => !b.isDemo);
+      const payload = {
+        version: 2,
+        batches: realRemaining.map(b => ({
+          points: b.points,
+          originalRows: b.originalRows,
+          headers: b.headers,
+          title: b.label,
+          color: b.color,
+        })),
+      };
+      setPersistMsg({ type: 'saving', text: 'Deleting dataset…' });
+      fetch('/api/auth/save-dataset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(r => {
+          if (r.ok) setPersistMsg({ type: 'saved', text: '✓ Dataset permanently deleted' });
+          else setPersistMsg({ type: 'error', text: 'Delete failed — please try again' });
+        })
+        .catch(() => setPersistMsg({ type: 'error', text: 'Delete failed — please try again' }));
+    }
   }
 
   function handleHideDemo() {
@@ -550,6 +588,20 @@ export default function Home() {
   // if the user signed out while a fetch was in flight.
   useEffect(() => { isSignedInRef.current = !!isSignedIn; }, [isSignedIn]);
 
+  // When a signed-in user signs out, force a hard reload so Clerk re-initialises cleanly.
+  // afterSignOutUrl="/" can silently skip navigation when already on /, leaving clerkLoaded
+  // briefly false and the auth UI permanently hidden.
+  useEffect(() => {
+    if (!clerkLoaded) return;
+    if (prevIsSignedInRef.current === true && isSignedIn === false) {
+      window.location.replace('/');
+      return;
+    }
+    prevIsSignedInRef.current = isSignedIn;
+  }, [clerkLoaded, isSignedIn]);
+
+  useEffect(() => { dataBatchesRef.current = dataBatches; }, [dataBatches]);
+
   // Invariant: when Clerk is fully loaded and the user is signed out, no user data
   // should be visible. Using an invariant (not transition detection) makes this robust
   // against Clerk's intermediate isLoaded=false states and any navigation pattern.
@@ -605,8 +657,6 @@ export default function Home() {
           tierRef.current = data.tier;
         }
         if (data.loggedIn) {
-          // Guard: abort if user signed out while this fetch was in flight
-          if (!isSignedInRef.current) return;
           // Restore last map extent (dataset fitBounds will override if data exists)
           if (savedExtentRef.current) {
             mapRef.current?.flyTo(savedExtentRef.current);
@@ -1027,31 +1077,31 @@ export default function Home() {
       setHiddenBatches(new Set(hiddenBatchesRef.current));
     }
 
-    let batchesToSave = null;
+    // Compute the new batch and save payload before the state updater runs.
+    // React 18 updater functions run during the render phase, not synchronously,
+    // so batchesToSave must be computed here where it is available synchronously.
+    const prevReal = dataBatchesRef.current.filter((b) => !b.isDemo);
+    const batchIndex = isAdd ? prevReal.length : 0;
+    const globalOffset = isAdd ? prevReal.reduce((sum, b) => sum + b.points.length, 0) : 0;
+    const batchId = `batch-${batchIndex}`;
+    const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
+    const label = title || `Dataset ${batchIndex + 1}`;
+
+    const taggedPoints = points.map((p, i) => ({
+      ...p,
+      _batchId: batchId,
+      _globalIndex: globalOffset + i,
+      _datasetLabel: label,
+    }));
+
+    const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
+    const batchesToSave = isAdd ? [...prevReal, newBatch] : [newBatch];
 
     setDataBatches((prevBatches) => {
-      const prevReal = prevBatches.filter((b) => !b.isDemo);
       const prevDemo = prevBatches.filter((b) => b.isDemo);
-
-      const batchIndex = isAdd ? prevReal.length : 0;
-      const globalOffset = isAdd ? prevReal.reduce((sum, b) => sum + b.points.length, 0) : 0;
-      const batchId = `batch-${batchIndex}`;
-      const color = BATCH_COLORS[batchIndex % BATCH_COLORS.length];
-      const label = title || `Dataset ${batchIndex + 1}`;
-
-      const taggedPoints = points.map((p, i) => ({
-        ...p,
-        _batchId: batchId,
-        _globalIndex: globalOffset + i,
-        _datasetLabel: label,
-      }));
-
-      const newBatch = { id: batchId, label, points: taggedPoints, originalRows, headers, color };
-      // Keep demo in state (greyed out in LayerPanel); only save real batches
-      const newBatches = isAdd ? [...prevDemo, ...prevReal, newBatch] : [...prevDemo, newBatch];
-      batchesToSave = newBatches.filter((b) => !b.isDemo);
-
-      return newBatches;
+      return isAdd
+        ? [...prevDemo, ...prevBatches.filter((b) => !b.isDemo), newBatch]
+        : [...prevDemo, newBatch];
     });
 
     // Fit map to the newly uploaded points — use `points` directly since the
@@ -1144,6 +1194,10 @@ export default function Home() {
     }
     setGeoSuggestions({ states: loadedStates, cities: geos.cities ?? [] });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (isMobile && !mobileBypass) {
+    return <MobileLanding onContinue={() => setMobileBypass(true)} />;
+  }
 
   return (
     <>
@@ -1401,6 +1455,28 @@ export default function Home() {
           authProfile={authProfile}
         />
       )}
+
+      {batchToDelete && (() => {
+        const batch = dataBatches.find(b => b.id === batchToDelete);
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{ background: '#fff', borderRadius: 12, padding: '24px 24px 20px', maxWidth: 380, width: '100%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', fontFamily: "'Open Sans', sans-serif" }}>
+              <p style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 16, color: '#1c3557', marginBottom: 10 }}>Delete dataset?</p>
+              <p style={{ fontSize: 13, color: '#4a5568', lineHeight: 1.6, marginBottom: 20 }}>
+                <strong>{batch?.label || 'This dataset'}</strong> will be permanently removed from our servers. This cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button onClick={() => setBatchToDelete(null)} style={{ background: 'none', border: '1px solid #dde3ea', borderRadius: 6, padding: '8px 16px', fontSize: 13, color: '#4a5568', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleConfirmDeleteBatch} style={{ background: '#e63947', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                  Delete permanently
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showTour && <TourOverlay onClose={() => setShowTour(false)} />}
 

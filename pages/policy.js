@@ -74,6 +74,22 @@ export default function PolicyPage() {
     return Object.keys(nextErrors).length === 0;
   }
 
+  async function fetchWithBudget(url, init, budgetMs, stepLabel) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budgetMs);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      return res;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error(`${stepLabel} took longer than expected — please try again.`);
+      }
+      throw new Error(`${stepLabel} failed: ${err.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function handleScan() {
     if (!validate()) return;
 
@@ -85,13 +101,20 @@ export default function PolicyPage() {
     setBills([]);
     setCandidateCount(null);
 
+    let currentStep = 'keywords';
     try {
+      currentStep = 'keywords';
       setScanStep('keywords');
-      const kwRes = await fetch('/api/pulse/keywords', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ missionText }),
-      });
+      const kwRes = await fetchWithBudget(
+        '/api/pulse/keywords',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ missionText }),
+        },
+        30000,
+        'Keyword extraction',
+      );
       if (!kwRes.ok) {
         const errData = await kwRes.json().catch(() => ({}));
         throw new Error(errData.error || `Keywords API error ${kwRes.status}`);
@@ -99,9 +122,13 @@ export default function PolicyPage() {
       const { keywords } = await kwRes.json();
       if (!keywords?.length) throw new Error('No keywords returned from Claude');
 
+      currentStep = 'bills';
       setScanStep('bills');
-      const billsRes = await fetch(
-        `/api/pulse/bills?state=${state}&keywords=${encodeURIComponent(keywords.join(','))}`
+      const billsRes = await fetchWithBudget(
+        `/api/pulse/bills?state=${state}&keywords=${encodeURIComponent(keywords.join(','))}`,
+        {},
+        30000,
+        'Bill search',
       );
       if (!billsRes.ok) {
         const errData = await billsRes.json().catch(() => ({}));
@@ -116,18 +143,24 @@ export default function PolicyPage() {
       const candidates = allCandidates.slice(0, 25);
       setCandidateCount(candidates.length);
 
+      currentStep = 'scoring';
       setScanStep('scoring');
-      const scoreRes = await fetch('/api/pulse/score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          missionText,
-          bills: candidates,
-          districtName: label,
-          level: body,
-          repNames: [],
-        }),
-      });
+      const scoreRes = await fetchWithBudget(
+        '/api/pulse/score',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            missionText,
+            bills: candidates,
+            districtName: label,
+            level: body,
+            repNames: [],
+          }),
+        },
+        120000,
+        'Scoring',
+      );
       if (!scoreRes.ok) {
         const errData = await scoreRes.json().catch(() => ({}));
         throw new Error(errData.error || `Score API error ${scoreRes.status}`);
@@ -136,7 +169,7 @@ export default function PolicyPage() {
       setBills(scored || []);
       setPhase('results');
     } catch (err) {
-      setError(`Error: ${err.message}`);
+      setError(`Error during ${currentStep}: ${err.message}`);
       setPhase('results');
     } finally {
       setScanStep(null);

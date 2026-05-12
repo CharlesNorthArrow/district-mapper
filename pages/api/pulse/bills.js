@@ -7,8 +7,6 @@
 //   2. Use state param to look up jurisdiction + session
 //   3. Validate state is in supported list before querying
 
-export const config = { api: { maxDuration: 60 } };
-
 import { STATE_CONFIG } from '../../../lib/policyPulse';
 
 const OPEN_STATES_BASE = 'https://v3.openstates.org';
@@ -30,7 +28,7 @@ async function searchBills(jurisdiction, keyword, attempt = 0) {
 
   const res = await fetch(url, {
     headers,
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(25000),
   });
 
   // Retry once on 429/502/503 (transient Open States failures)

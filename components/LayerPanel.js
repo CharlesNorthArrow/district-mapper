@@ -687,6 +687,12 @@ export default function LayerPanel({
       </div>
 
       {showGeoRequest && <GeoRequestModal onClose={() => setShowGeoRequest(false)} authProfile={authProfile} />}
+
+      <div style={{ padding: '8px 16px 10px', borderTop: '1px solid #dde3ea' }}>
+        <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#aab8c5', textDecoration: 'none' }}>
+          🔒 Data &amp; Privacy Policy
+        </a>
+      </div>
     </div>
   );
 }

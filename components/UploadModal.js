@@ -1,9 +1,22 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { geocodeAddresses } from '../lib/geocodeQueue';
 import { auditData } from '../lib/dataAudit';
 import { getRowLimit, TIERS } from '../lib/tierConfig';
+
+const GEOCODE_JOKES = [
+  'Asking satellites where your constituents live…',
+  'Teaching the algorithm what "Main Street" means…',
+  'Bribing GPS satellites for better coordinates…',
+  'Negotiating with zip codes on your behalf…',
+  'Convincing the map that P.O. Boxes aren\'t real locations…',
+  'Triangulating via carrier pigeon (backup method)…',
+  'Cross-referencing 140 million addresses on your behalf…',
+  'Because "the big blue house on the corner" isn\'t geocodeable…',
+  'Converting human addresses into robot coordinates…',
+  'Arguing with the database about which "Springfield" you mean…',
+];
 
 // Default enabled state per address role
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
@@ -29,12 +42,28 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
 
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
+  const [jokeIndex, setJokeIndex] = useState(0);
+
+  useEffect(() => {
+    if (step !== 'geocoding') return;
+    const id = setInterval(() => setJokeIndex((i) => (i + 1) % GEOCODE_JOKES.length), 3000);
+    return () => clearInterval(id);
+  }, [step]);
 
   // Completion step
   const [pendingData, setPendingData] = useState(null);    // { points, rows, headers, geocodeFailed, overflowCount }
   const [dataTitle, setDataTitle] = useState('');
 
   const fileRef = useRef();
+
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
+  useEffect(() => {
+    setShowPrivacyNotice(localStorage.getItem('dm_privacy_acknowledged') !== '1');
+  }, []);
+  function dismissPrivacyNotice() {
+    localStorage.setItem('dm_privacy_acknowledged', '1');
+    setShowPrivacyNotice(false);
+  }
 
   function getLimitWarning(rowsSkipped, limit) {
     const tierName = tier === 'free_anonymous' ? 'Guest' : tier === 'free' ? 'Free account' : (TIERS[tier]?.label ?? 'Current plan');
@@ -239,6 +268,28 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
         {step === 'idle' && (
           <div style={body}>
             <p style={hint}>Upload your members, your programs, your partners or any programmatic data you'd like analyzed.</p>
+
+            {showPrivacyNotice && (
+              <div style={privacyNotice}>
+                <span style={{ fontSize: 14 }}>🔒</span>
+                <span style={privacyNoticeText}>
+                  <strong>Your data stays private.</strong> Files are stored securely and only accessible to your organization.{' '}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" style={privacyNoticeLink}>
+                    How we handle your data →
+                  </a>
+                </span>
+                <button style={privacyNoticeDismiss} onClick={dismissPrivacyNotice} aria-label="Dismiss">✕</button>
+              </div>
+            )}
+
+            {tier === 'free_anonymous' && (
+              <div style={guestNote}>
+                Not signed in — your data is only in this browser session and is never saved to our servers.{' '}
+                <button style={guestNoteLink} onClick={() => onOpenUpgrade?.()}>Create a free account</button>{' '}
+                to save your work.
+              </div>
+            )}
+
             {tier === 'enterprise' ? (
               <div style={{ ...tierBox, background: '#f0fdf4', borderColor: '#bbf7d0' }}>
                 <p style={{ ...tierBoxTitle, color: '#166534', margin: 0 }}>Enterprise — unlimited access</p>
@@ -507,11 +558,15 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
         {/* ── GEOCODING ── */}
         {step === 'geocoding' && (
           <div style={body}>
-            <p style={hint}>Geocoding {rows.length.toLocaleString()} addresses…</p>
+            <style>{`@keyframes dm-spin { to { transform: rotate(360deg); } }`}</style>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '10px 0' }}>
+              <div style={{ width: 34, height: 34, border: '3px solid #e2e8f0', borderTopColor: 'var(--red)', borderRadius: '50%', animation: 'dm-spin 0.8s linear infinite' }} />
+              <p style={{ ...hint, textAlign: 'center', minHeight: 40, color: '#7a8fa6', fontStyle: 'italic' }}>{GEOCODE_JOKES[jokeIndex]}</p>
+            </div>
             <div style={progressTrack}>
               <div style={{ ...progressFill, width: `${progress}%` }} />
             </div>
-            <p style={{ ...hint, marginTop: 8 }}>{progress}% complete</p>
+            <p style={{ ...hint, marginTop: 8, textAlign: 'center' }}>{progress}% complete · {rows.length.toLocaleString()} addresses</p>
           </div>
         )}
 
@@ -592,6 +647,25 @@ const closeBtn = {
 };
 const body = { padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 8 };
 const hint = { fontSize: 13, color: '#4a5568', margin: 0 };
+const privacyNotice = {
+  display: 'flex', alignItems: 'flex-start', gap: 8,
+  background: '#f0f8ff', border: '1px solid #a9dadc', borderRadius: 6,
+  padding: '8px 10px', marginTop: 2,
+};
+const privacyNoticeText = { fontSize: 12, color: '#2d4a66', lineHeight: 1.5, flex: 1 };
+const privacyNoticeLink = { color: '#467c9d', textDecoration: 'underline' };
+const privacyNoticeDismiss = {
+  background: 'none', border: 'none', cursor: 'pointer', color: '#aab8c5',
+  fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1, marginTop: 1,
+};
+const guestNote = {
+  fontSize: 12, color: '#467c9d', background: '#f0f8ff',
+  border: '1px solid #a9dadc', borderRadius: 6, padding: '8px 10px', lineHeight: 1.5,
+};
+const guestNoteLink = {
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+  color: '#467c9d', fontWeight: 600, textDecoration: 'underline', fontSize: 12,
+};
 const tierBox = {
   marginTop: 10, padding: '10px 14px', background: '#f0f4f8',
   border: '1px solid #dde3ea', borderRadius: 6,
