@@ -45,7 +45,7 @@ export default function BillFeed({ bills, loading, error, scanStep, candidateCou
           <p style={{ fontSize: 13, fontWeight: 700, color: '#1c3557', marginBottom: 4 }}>
             {CYCLING_MESSAGES[msgIndex]}
           </p>
-          <p style={{ fontSize: 11, color: '#a0aec0' }}>~20 seconds · NY legislature · {new Date().getFullYear()}</p>
+          <p style={{ fontSize: 11, color: '#a0aec0' }}>This can take up to 90 seconds · NY legislature · {new Date().getFullYear()}</p>
         </div>
 
         {/* Step progress */}

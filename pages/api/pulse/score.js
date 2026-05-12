@@ -5,8 +5,6 @@
 // Claude scores all bills in a single prompt (batched).
 // repNames are the reps for the user's district — used to flag sponsored bills.
 
-export const config = { api: { maxDuration: 60 } };
-
 import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -46,8 +44,8 @@ ${JSON.stringify(billsForPrompt)}`;
 
   try {
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],
     });
 

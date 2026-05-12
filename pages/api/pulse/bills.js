@@ -7,8 +7,6 @@
 //   2. Use state param to look up jurisdiction + session
 //   3. Validate state is in supported list before querying
 
-export const config = { api: { maxDuration: 60 } };
-
 import { STATE_CONFIG } from '../../../lib/policyPulse';
 
 const OPEN_STATES_BASE = 'https://v3.openstates.org';
