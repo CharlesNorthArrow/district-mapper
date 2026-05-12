@@ -121,6 +121,7 @@ export default function AnalysisPanel({
   const dragRef = useRef(null);
   const selectAllRef = useRef(null);
   const autoSizedForRef = useRef(null);
+  const heightBeforeDrawerRef = useRef(null);
 
   function handleDragStart(e) {
     e.preventDefault();
@@ -251,6 +252,21 @@ export default function AnalysisPanel({
     const ideal = OVERHEAD_PX + rowCount * ROW_PX;
     setPanelHeight(Math.min(ideal, Math.round(window.innerHeight / 3)));
   }, [activeChoroLayer, rows.length, unmatchedCount]);
+
+  // Grow the panel when Policy Pulse drawer opens, restore on close.
+  // The drawer renders at height: 100% of the panel, so panel height = drawer height.
+  useEffect(() => {
+    if (policyDrawer) {
+      if (heightBeforeDrawerRef.current === null) {
+        heightBeforeDrawerRef.current = panelHeight;
+        const target = Math.round(window.innerHeight * 0.65);
+        if (target > panelHeight) setPanelHeight(target);
+      }
+    } else if (heightBeforeDrawerRef.current !== null) {
+      setPanelHeight(heightBeforeDrawerRef.current);
+      heightBeforeDrawerRef.current = null;
+    }
+  }, [policyDrawer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function getDisplayName(layerId) {
     if (!layerId) return '';
@@ -536,7 +552,7 @@ export default function AnalysisPanel({
                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <button
                                 style={zoomInBtn}
-                                onClick={(e) => { e.stopPropagation(); onDistrictZoom?.(activeChoroLayer, row.districtName); }}
+                                onClick={(e) => { e.stopPropagation(); onDistrictSelect?.(activeChoroLayer, row.districtName); }}
                               >
                                 Zoom In
                               </button>
