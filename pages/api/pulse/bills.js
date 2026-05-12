@@ -28,7 +28,7 @@ async function searchBills(jurisdiction, keyword, attempt = 0) {
 
   const res = await fetch(url, {
     headers,
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(25000),
   });
 
   // Retry once on 429/502/503 (transient Open States failures)
