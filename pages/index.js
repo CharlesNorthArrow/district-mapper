@@ -11,6 +11,8 @@ import UploadModal from '../components/UploadModal';
 import AnalysisPanel from '../components/AnalysisPanel';
 import Legend from '../components/Legend';
 import TourOverlay from '../components/TourOverlay';
+import IntroVideoModal from '../components/IntroVideoModal';
+import OliviaFab from '../components/OliviaFab';
 import ProcessingBar from '../components/ProcessingBar';
 import OverflowBanner from '../components/OverflowBanner';
 import UpgradeModal from '../components/UpgradeModal';
@@ -135,6 +137,7 @@ export default function Home() {
   const [lookupLabel, setLookupLabel] = useState('');
   const [lookupDistricts, setLookupDistricts] = useState({});
   const [showTour, setShowTour] = useState(false);
+  const [showIntroVideo, setShowIntroVideo] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -157,7 +160,7 @@ export default function Home() {
   // Read localStorage after mount to avoid SSR/client hydration mismatch
   useEffect(() => {
     try {
-      setShowTour(localStorage.getItem('dm_tour_dismissed') !== '1');
+      setShowIntroVideo(localStorage.getItem('dm_intro_video_seen') !== '1');
       const policies = JSON.parse(localStorage.getItem('dm_saved_policies') || '[]');
       setSavedPolicies(policies);
       setTierState(getTier());
@@ -1389,6 +1392,8 @@ export default function Home() {
             </button>
           </div>
 
+          {!showIntroVideo && <OliviaFab onClick={() => setShowIntroVideo(true)} />}
+
           {loadingLayer && (
             <div style={mapLoadingBadge}>
               <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>↻</span>
@@ -1478,6 +1483,9 @@ export default function Home() {
         );
       })()}
 
+      {showIntroVideo && (
+        <IntroVideoModal onClose={() => setShowIntroVideo(false)} />
+      )}
       {showTour && <TourOverlay onClose={() => setShowTour(false)} />}
 
       {showExportDialog && (
