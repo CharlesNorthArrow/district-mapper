@@ -11,6 +11,21 @@ import { LAYER_CONFIG } from '../../lib/layerConfig';
 import { STATE_FIPS } from '../../lib/stateFips';
 import { STATE_BBOX } from '../../lib/geoSuggest';
 
+// Stream a JSON object as chunked HTTP response so payloads can exceed Vercel
+// Functions' 4.5 MB buffered-response cap. Tightening boundary precision means
+// some states' GeoJSON (e.g. ZCTAs, school districts at 0.0001 offset) push
+// well past that cap. Writing in chunks without setting Content-Length causes
+// Node to emit Transfer-Encoding: chunked, which Vercel does not cap.
+function sendJsonStream(res, obj) {
+  res.setHeader('Content-Type', 'application/json');
+  const json = JSON.stringify(obj);
+  const CHUNK = 64 * 1024;
+  for (let i = 0; i < json.length; i += CHUNK) {
+    res.write(json.slice(i, i + CHUNK));
+  }
+  res.end();
+}
+
 // Build FIPS → bbox lookup once at module load
 const FIPS_TO_BBOX = Object.fromEntries(
   Object.entries(STATE_FIPS)
@@ -72,7 +87,7 @@ export default async function handler(req, res) {
   // Cache check — return immediately if we have a warm cached result
   const key = cacheKey(layer, stateFips);
   const cached = cacheGet(key);
-  if (cached) return res.status(200).json(cached);
+  if (cached) return sendJsonStream(res, cached);
 
   // Build WHERE clause
   let where;
@@ -128,7 +143,7 @@ export default async function handler(req, res) {
     }
     const result = { type: 'FeatureCollection', features: allFeatures };
     cacheSet(key, result, false);
-    return res.status(200).json(result);
+    return sendJsonStream(res, result);
   }
 
   // byBbox: paginate through all results and post-filter to centroid within state bbox.
@@ -193,7 +208,7 @@ export default async function handler(req, res) {
 
     const result = { type: 'FeatureCollection', features: filtered };
     cacheSet(key, result, false);
-    return res.status(200).json(result);
+    return sendJsonStream(res, result);
   }
 
   const url = `${config.endpoint}/query?${params}`;
@@ -216,7 +231,7 @@ export default async function handler(req, res) {
     }
 
     cacheSet(key, geojson, config.queryMode === 'national');
-    return res.status(200).json(geojson);
+    return sendJsonStream(res, geojson);
   } catch (err) {
     return res.status(502).json({ error: `Failed to reach data source: ${err.message}` });
   }

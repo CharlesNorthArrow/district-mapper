@@ -52,6 +52,53 @@ async function persistBatchesToBlob({ batchesToSave, orgId }) {
   });
 }
 
+// Layers whose high-resolution boundaries can take several seconds to fetch
+// (paginated and/or large per-state payloads). Used to set expectations in
+// the loading badge so users don't think the app stalled.
+const HEAVY_LAYERS = new Set([
+  'zcta', 'school-unified', 'school-elementary', 'school-secondary',
+  'county-subdivisions',
+]);
+
+function loadingBadgeSubtitle(layerId, elapsedSec) {
+  const heavy = HEAVY_LAYERS.has(layerId);
+  if (elapsedSec < 3) return heavy ? 'High-resolution boundaries — this may take a few seconds' : '';
+  if (elapsedSec < 10) return 'Fetching detailed shapes…';
+  if (elapsedSec < 20) return 'Large geography — almost there';
+  return 'Still working — large dataset';
+}
+
+function LayerLoadingBadge({ layerId }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    setElapsed(0);
+    if (!layerId) return undefined;
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500);
+    return () => clearInterval(id);
+  }, [layerId]);
+
+  if (!layerId) return null;
+  const name = LAYER_CONFIG[layerId]?.displayName || layerId;
+  const subtitle = loadingBadgeSubtitle(layerId, elapsed);
+  return (
+    <div style={mapLoadingBadge}>
+      <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>↻</span>
+      <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+        <span>
+          Loading {name}
+          {elapsed > 0 && <span style={{ opacity: 0.7, marginLeft: 6, fontWeight: 500 }}>· {elapsed}s</span>}
+        </span>
+        {subtitle && (
+          <span style={{ fontSize: 10, opacity: 0.75, fontWeight: 500, marginTop: 2 }}>
+            {subtitle}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 // Return all state names whose bounding box contains at least one of the given points.
 function detectStatesFromPoints(points) {
   const detected = [];
@@ -1414,12 +1461,7 @@ export default function Home() {
 
           {!showIntroVideo && <OliviaFab onClick={() => setShowIntroVideo(true)} />}
 
-          {loadingLayer && (
-            <div style={mapLoadingBadge}>
-              <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>↻</span>
-              Loading {LAYER_CONFIG[loadingLayer]?.displayName || loadingLayer}…
-            </div>
-          )}
+          {loadingLayer && <LayerLoadingBadge layerId={loadingLayer} />}
           {dataBatches.some((b) => !hiddenBatches.has(b.id)) && (() => {
             const visibleBatches = dataBatches.filter((b) => !hiddenBatches.has(b.id));
             const visibleEnrichedPoints = enrichedPoints.filter((p) => !hiddenBatches.has(p._batchId));
