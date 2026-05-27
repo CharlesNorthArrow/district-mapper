@@ -44,15 +44,18 @@ function buildPopupHTML(properties) {
     .filter(([k]) => !skip.has(k))
     .map(([k, v]) => `
       <tr>
-        <td style="padding:3px 8px 3px 0;color:#7a8fa6;white-space:nowrap;vertical-align:top;font-size:11px">${k}</td>
-        <td style="padding:3px 0;font-weight:600;color:#1c3557;font-size:12px;word-break:break-word">${v ?? ''}</td>
+        <td style="padding:3px 8px 3px 0;color:#7a8fa6;vertical-align:top;font-size:11px;word-break:break-word;overflow-wrap:anywhere">${k}</td>
+        <td style="padding:3px 0;font-weight:600;color:#1c3557;font-size:12px;word-break:break-word;overflow-wrap:anywhere">${v ?? ''}</td>
       </tr>`)
     .join('');
   const header = properties._datasetLabel
     ? `<div style="font-family:'Open Sans',sans-serif;font-size:11px;font-weight:700;color:#fff;background:#1c3557;padding:5px 10px;margin:-8px -10px 6px;border-radius:3px 3px 0 0">${properties._datasetLabel}</div>`
     : '';
   return `<div style="max-height:260px;overflow-y:auto;font-family:'Open Sans',sans-serif;padding:8px 10px">
-    ${header}<table style="border-collapse:collapse;width:100%">${rows}</table>
+    ${header}<table style="border-collapse:collapse;width:100%;table-layout:fixed">
+      <colgroup><col style="width:140px"><col></colgroup>
+      ${rows}
+    </table>
   </div>`;
 }
 
@@ -106,7 +109,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
         },
       });
 
-      const popup = new mapboxgl.Popup({ closeButton: true, maxWidth: '320px' });
+      const popup = new mapboxgl.Popup({ closeButton: true, maxWidth: '420px' });
       popupRef.current = popup;
       map.on('click', 'uploaded-points', (e) => {
         const feature = e.features?.[0];
@@ -248,11 +251,13 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
           })),
         });
 
-        const entries = Object.entries(batchColors);
-        const colorExpr = entries.length > 1
-          ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
-          : (entries[0]?.[1] ?? '#e63947');
-        map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
+        if (points.length > 0) {
+          const entries = Object.entries(batchColors);
+          const colorExpr = entries.length > 1
+            ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
+            : (entries[0]?.[1] ?? '#e63947');
+          map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
+        }
         map.triggerRepaint();
       };
 

@@ -255,12 +255,17 @@ export default function ExportDialog({
     if (selLayers.length === 0) return;
 
     if (format === 'csv') {
-      const rows = selectedBatchList.flatMap((b) => b.originalRows);
-      const csv = buildEnrichedCSV(rows, filteredPoints, selLayers);
-      const filename = selectedBatchList.length === 1
-        ? `${selectedBatchList[0].label.replace(/\s+/g, '-').toLowerCase()}-enriched.csv`
-        : 'district-mapper-enriched.csv';
-      downloadCSV(csv, filename);
+      for (let i = 0; i < selectedBatchList.length; i++) {
+        const batch = selectedBatchList[i];
+        const batchPoints = filteredPoints.filter((p) => p._batchId === batch.id);
+        const csv = buildEnrichedCSV(batch.originalRows, batchPoints, selLayers);
+        const filename = `${batch.label.replace(/\s+/g, '-').toLowerCase()}-enriched.csv`;
+        downloadCSV(csv, filename);
+        // Small gap so the browser doesn't collapse rapid-fire downloads
+        if (i < selectedBatchList.length - 1) {
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
       onClose();
       return;
     }
