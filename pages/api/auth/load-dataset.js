@@ -1,9 +1,15 @@
 // GET /api/auth/load-dataset
-// Returns the org's saved dataset, fetching the blob server-side to avoid CDN cache issues.
-export const config = { api: { maxDuration: 30 } };
+// Streams the org's saved dataset JSON straight from Vercel Blob to the browser.
+// Streaming (Transfer-Encoding: chunked) is required because Vercel Functions
+// cap buffered response bodies at 4.5 MB — datasets larger than that would
+// otherwise fail to load. Metadata (filename, uploaded_at) is sent in response
+// headers since it lives in Postgres, not the blob.
+export const config = { api: { maxDuration: 60 } };
 
+import { Readable } from 'node:stream';
 import { getAuth } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
+import { get } from '@vercel/blob';
 
 export default async function handler(req, res) {
   const { userId } = getAuth(req);
@@ -11,59 +17,34 @@ export default async function handler(req, res) {
 
   try {
     const { rows } = await sql`
-      SELECT d.blob_url, d.filename, d.uploaded_at
-      FROM datasets d
-      JOIN orgs o ON o.id = d.org_id
+      SELECT o.id AS org_id, d.filename, d.uploaded_at
+      FROM orgs o
+      LEFT JOIN datasets d ON d.org_id = o.id
       WHERE o.clerk_user_id = ${userId}
     `;
+    if (!rows.length) return res.status(404).json({ error: 'Org not found' });
+    const { org_id, filename, uploaded_at } = rows[0];
 
-    if (!rows.length) return res.status(200).json({ dataset: null });
-
-    const { blob_url, filename, uploaded_at } = rows[0];
-
-    // Proxy the blob through the server so the client never fetches it directly.
-    // Direct client-side fetches can hit stale CDN cache when we overwrite the same
-    // blob path (addRandomSuffix: false). Fetching server-side bypasses the CDN.
-    const blobRes = await fetch(blob_url, {
-      headers: {
-        'Authorization': `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
-        'Cache-Control': 'no-cache, no-store',
-      },
-    });
-
-    if (!blobRes.ok) {
-      console.error(`[load-dataset] blob fetch failed: ${blobRes.status} for ${blob_url}`);
-      return res.status(200).json({ dataset: null });
+    // No dataset row yet — return empty body the client treats as "no saved dataset"
+    if (!filename && !uploaded_at) {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('x-dataset-empty', '1');
+      return res.status(200).end('null');
     }
 
-    const data = await blobRes.json();
-
-    // v2 format: multiple batches
-    if (data?.version === 2 && Array.isArray(data.batches)) {
-      const total = data.batches.reduce((s, b) => s + (b.points?.length ?? 0), 0);
-      console.log(`[load-dataset] returning v2 (${data.batches.length} batches, ${total} points) for user ${userId}`);
-      return res.status(200).json({ dataset: { version: 2, batches: data.batches, filename, uploaded_at } });
+    const result = await get(`datasets/${org_id}/latest.json`, { access: 'private' });
+    if (!result || result.statusCode !== 200) {
+      res.setHeader('x-dataset-empty', '1');
+      return res.status(200).json(null);
     }
 
-    // v1 format: single dataset
-    if (!data?.points?.length) {
-      console.error('[load-dataset] blob had no points');
-      return res.status(200).json({ dataset: null });
-    }
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (filename) res.setHeader('x-dataset-filename', encodeURIComponent(filename));
+    if (uploaded_at) res.setHeader('x-dataset-uploaded-at', new Date(uploaded_at).toISOString());
 
-    console.log(`[load-dataset] returning v1 ${data.points.length} points for user ${userId}`);
-    return res.status(200).json({
-      dataset: {
-        filename,
-        uploaded_at,
-        points: data.points,
-        originalRows: data.originalRows ?? null,
-        headers: data.headers ?? [],
-        title: data.title ?? filename ?? '',
-      },
-    });
+    Readable.fromWeb(result.stream).pipe(res);
   } catch (err) {
-    console.error('[load-dataset] error:', err.message);
     return res.status(500).json({ error: err.message });
   }
 }

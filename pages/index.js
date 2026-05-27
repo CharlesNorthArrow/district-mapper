@@ -20,6 +20,37 @@ import ExportDialog from '../components/ExportDialog';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies, STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
+import { upload } from '@vercel/blob/client';
+
+// Persist a batches payload to Vercel Blob via direct browser upload.
+// Goes browser → Blob, bypassing Vercel's 4.5 MB request body cap on Functions.
+// The token route (/api/auth/save-dataset-token) signs the token and writes the
+// Postgres metadata row in onUploadCompleted.
+async function persistBatchesToBlob({ batchesToSave, orgId }) {
+  const payload = {
+    version: 2,
+    batches: batchesToSave.map(b => ({
+      points: b.points,
+      originalRows: b.originalRows,
+      headers: b.headers,
+      title: b.label,
+      color: b.color,
+    })),
+  };
+  const rowCount = payload.batches.reduce((s, b) => s + (b.points?.length ?? 0), 0);
+  const primary = payload.batches[0] ?? {};
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  return upload(`datasets/${orgId}/latest.json`, blob, {
+    access: 'private',
+    contentType: 'application/json',
+    handleUploadUrl: '/api/auth/save-dataset-token',
+    clientPayload: JSON.stringify({
+      rowCount,
+      primaryTitle: primary.title ?? '',
+      primaryHeaders: primary.headers ?? [],
+    }),
+  });
+}
 
 // Return all state names whose bounding box contains at least one of the given points.
 function detectStatesFromPoints(points) {
@@ -272,27 +303,15 @@ export default function Home() {
 
     if (isSignedInRef.current) {
       const realRemaining = remaining.filter(b => !b.isDemo);
-      const payload = {
-        version: 2,
-        batches: realRemaining.map(b => ({
-          points: b.points,
-          originalRows: b.originalRows,
-          headers: b.headers,
-          title: b.label,
-          color: b.color,
-        })),
-      };
-      setPersistMsg({ type: 'saving', text: 'Deleting dataset…' });
-      fetch('/api/auth/save-dataset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-        .then(r => {
-          if (r.ok) setPersistMsg({ type: 'saved', text: '✓ Dataset permanently deleted' });
-          else setPersistMsg({ type: 'error', text: 'Delete failed — please try again' });
-        })
-        .catch(() => setPersistMsg({ type: 'error', text: 'Delete failed — please try again' }));
+      const orgId = authProfileRef.current?.orgId;
+      if (!orgId) {
+        setPersistMsg({ type: 'error', text: 'Delete failed — please sign in again' });
+      } else {
+        setPersistMsg({ type: 'saving', text: 'Deleting dataset…' });
+        persistBatchesToBlob({ batchesToSave: realRemaining, orgId })
+          .then(() => setPersistMsg({ type: 'saved', text: '✓ Dataset permanently deleted' }))
+          .catch((err) => setPersistMsg({ type: 'error', text: `Delete failed: ${err.message || 'please try again'}` }));
+      }
     }
   }
 
@@ -691,12 +710,27 @@ export default function Home() {
         setPersistMsg({ type: 'error', text: `Restore failed (${res.status}): ${e.error || 'unknown error'}` });
         return;
       }
-      const { dataset } = await res.json();
-      if (!dataset) {
+      // The new load route streams the blob body directly; dataset metadata
+      // (filename, uploaded_at) is sent in response headers since it lives in
+      // Postgres rather than the blob.
+      if (res.headers.get('x-dataset-empty') === '1') {
         setPersistMsg({ type: 'error', text: 'No saved dataset found — upload your data to get started.' });
         setTimeout(() => setPersistMsg(null), 6000);
         return;
       }
+      const filenameHdr = res.headers.get('x-dataset-filename');
+      const uploadedAtHdr = res.headers.get('x-dataset-uploaded-at');
+      const parsed = await res.json();
+      if (!parsed) {
+        setPersistMsg({ type: 'error', text: 'No saved dataset found — upload your data to get started.' });
+        setTimeout(() => setPersistMsg(null), 6000);
+        return;
+      }
+      const dataset = {
+        ...parsed,
+        filename: filenameHdr ? decodeURIComponent(filenameHdr) : undefined,
+        uploaded_at: uploadedAtHdr || undefined,
+      };
 
       // Build all batch objects synchronously from the loaded data
       let newBatches = [];
@@ -1119,34 +1153,20 @@ export default function Home() {
 
     // Persist all batches for logged-in users.
     if (isSignedInRef.current && batchesToSave) {
-      setPersistMsg({ type: 'saving', text: 'Saving dataset…' });
-      const payload = {
-        version: 2,
-        batches: batchesToSave.map(b => ({
-          points: b.points,
-          originalRows: b.originalRows,
-          headers: b.headers,
-          title: b.label,
-          color: b.color,
-        })),
-      };
-      fetch('/api/auth/save-dataset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-        .then(async (r) => {
-          if (!r.ok) {
-            const e = await r.json().catch(() => ({}));
-            setPersistMsg({ type: 'error', text: `Save failed (${r.status}): ${e.error || 'unknown error'}` });
-          } else {
+      const orgId = authProfileRef.current?.orgId;
+      if (!orgId) {
+        setPersistMsg({ type: 'error', text: 'Save failed — please sign in again' });
+      } else {
+        setPersistMsg({ type: 'saving', text: 'Saving dataset…' });
+        persistBatchesToBlob({ batchesToSave, orgId })
+          .then(() => {
             setPersistMsg({ type: 'saved', text: `✓ ${batchesToSave.length > 1 ? `${batchesToSave.length} datasets` : 'Dataset'} saved to your account` });
             setTimeout(() => setPersistMsg(null), 4000);
-          }
-        })
-        .catch((err) => {
-          setPersistMsg({ type: 'error', text: `Save failed: ${err.message}` });
-        });
+          })
+          .catch((err) => {
+            setPersistMsg({ type: 'error', text: `Save failed: ${err.message || 'unknown error'}` });
+          });
+      }
     }
 
     // Auto-select states and cities in the sidebar based on where the uploaded points land
