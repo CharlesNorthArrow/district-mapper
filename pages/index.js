@@ -1431,6 +1431,8 @@ export default function Home() {
                   headers: visibleBatches.find((b) => !b.isDemo)?.headers ?? visibleBatches[0]?.headers ?? [],
                 }}
                 enrichedPoints={visibleEnrichedPoints}
+                isAnalyzing={processingStatus?.phase === 'Analyzing districts'}
+                analyzeProgress={processingStatus?.phase === 'Analyzing districts' ? processingStatus : null}
                 activeLayers={activeLayers}
                 layerCounts={layerCounts}
                 layerColors={layerColors}

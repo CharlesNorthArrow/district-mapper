@@ -85,6 +85,8 @@ function renderParty(districtName, officials) {
 export default function AnalysisPanel({
   uploadedData,
   enrichedPoints,
+  isAnalyzing = false,
+  analyzeProgress = null,
   activeLayers,
   layerCounts = {},
   layerColors = {},
@@ -412,8 +414,22 @@ export default function AnalysisPanel({
             </div>
           )}
 
+          {activeLayers.length > 0 && isAnalyzing && (
+            <div style={loadingState}>
+              <div style={loadingSpinner} />
+              <div style={loadingText}>
+                Matching points to districts…
+                {analyzeProgress && analyzeProgress.total > 0 && (
+                  <span style={loadingProgress}>
+                    {' '}{analyzeProgress.done.toLocaleString()} / {analyzeProgress.total.toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* State 1: no layer selected — overview table */}
-          {activeLayers.length > 0 && !activeChoroLayer && (
+          {activeLayers.length > 0 && !isAnalyzing && !activeChoroLayer && (
             <div style={tableWrap}>
               <table style={table}>
                 <thead>
@@ -470,7 +486,7 @@ export default function AnalysisPanel({
           )}
 
           {/* State 2: layer selected — district detail table */}
-          {activeChoroLayer && (
+          {activeChoroLayer && !isAnalyzing && (
             <>
               {checkedDistricts.size > 0 && (
                 <div style={downloadBar}>
@@ -731,6 +747,17 @@ const emptyState = {
   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
 };
 const emptyText = { fontSize: 13, color: '#7a8fa6', textAlign: 'center' };
+const loadingState = {
+  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+  gap: 10, padding: '20px',
+};
+const loadingSpinner = {
+  width: 16, height: 16, flexShrink: 0,
+  border: '2px solid #dde3ea', borderTopColor: 'var(--dark-navy)',
+  borderRadius: '50%', animation: 'spin 0.75s linear infinite',
+};
+const loadingText = { fontSize: 13, color: '#7a8fa6' };
+const loadingProgress = { color: '#9aabb8', fontVariantNumeric: 'tabular-nums' };
 const scanBtn = {
   background: 'none', border: '1px solid #a9dadc', borderRadius: 4,
   padding: '2px 8px', fontSize: 11, color: '#1c3557',
