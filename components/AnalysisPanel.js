@@ -8,11 +8,15 @@ import { isScannableLayer } from '../lib/policyPulse';
 import FilterBar, { applyFilters } from './FilterBar';
 import PolicyDrawer from './PolicyPulse/PolicyDrawer';
 
-const NATIONAL_IDS = new Set(['congressional', 'us-senate', 'counties', 'tribal-lands', 'urban-areas']);
+const NATIONAL_IDS = new Set(['us-senate', 'counties', 'tribal-lands', 'urban-areas']);
 
 function getScope(layerId) {
   if (NATIONAL_IDS.has(layerId)) return 'national';
-  if (layerId.startsWith('state-') || layerId.startsWith('school-') || layerId === 'incorporated-places' || layerId === 'zcta') return 'state';
+  if (
+    layerId === 'congressional' ||
+    layerId.startsWith('state-') || layerId.startsWith('school-') ||
+    layerId === 'incorporated-places' || layerId === 'zcta'
+  ) return 'state';
   if (layerId.startsWith('council-')) return 'local';
   return 'custom';
 }

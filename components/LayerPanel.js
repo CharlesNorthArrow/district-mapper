@@ -10,8 +10,9 @@ const NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR).map(([abbr, n
 
 const US_STATES = Object.keys(STATE_FIPS).sort();
 // Free layers first, then locked — within each section
-export const NATIONAL_LAYERS = ['us-senate', 'congressional', 'tribal-lands', 'urban-areas'];
+export const NATIONAL_LAYERS = ['us-senate', 'tribal-lands', 'urban-areas'];
 export const STATE_LAYERS = [
+  'congressional',
   'state-senate', 'state-house',
   'counties', 'county-subdivisions', 'zcta',
   'school-unified', 'school-elementary', 'school-secondary',

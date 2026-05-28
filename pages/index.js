@@ -53,14 +53,15 @@ async function persistBatchesToBlob({ batchesToSave, orgId }) {
 }
 
 // Layers whose high-resolution boundaries can take several seconds to fetch.
-// Now that every layer runs at 0.0001 offset, the national-scope layers
-// (congressional, us-senate, urban-areas, tribal-lands) and the dense byState
-// layers (school districts, ZCTAs, county subdivisions, incorporated places,
-// state legislative) all fall into this bucket.
+// Now that every layer runs at 0.0001 offset, the remaining national-scope
+// layers (us-senate, urban-areas, tribal-lands) and the dense byState layers
+// (school districts, ZCTAs, county subdivisions, incorporated places, state
+// legislative) all fall into this bucket. Congressional moved to byState so
+// it's no longer heavy — typical state has <30 districts.
 const HEAVY_LAYERS = new Set([
   'zcta', 'school-unified', 'school-elementary', 'school-secondary',
   'county-subdivisions', 'incorporated-places',
-  'congressional', 'us-senate', 'urban-areas', 'tribal-lands',
+  'us-senate', 'urban-areas', 'tribal-lands',
   'state-senate', 'state-house', 'opportunity-zones',
 ]);
 
@@ -1130,9 +1131,8 @@ export default function Home() {
   function getLayerIdsFromGeos(geos) {
     if (!geos) return [];
     const ids = [];
-    if (geos.congressional) ids.push('congressional');
     if (geos['us-senate']) ids.push('us-senate');
-    for (const key of ['counties', 'county-subdivisions', 'zcta', 'state-senate', 'state-house',
+    for (const key of ['congressional', 'counties', 'county-subdivisions', 'zcta', 'state-senate', 'state-house',
       'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
       if (geos[key]?.length > 0) ids.push(key);
     }
@@ -1241,9 +1241,8 @@ export default function Home() {
       setActiveLayers([]);
       setLayerGeojson({});
       setLayerColors({});
-      if (geos.congressional) handleLayerToggle('congressional', true);
       if (geos['us-senate']) handleLayerToggle('us-senate', true);
-      for (const layerId of ['counties', 'census-tracts', 'county-subdivisions', 'zcta', 'state-senate', 'state-house', 'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
+      for (const layerId of ['congressional', 'counties', 'census-tracts', 'county-subdivisions', 'zcta', 'state-senate', 'state-house', 'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones']) {
         const states = geos[layerId] ?? [];
         if (states.length > 0) {
           const fipsArray = states.map((s) => STATE_FIPS[s]).filter(Boolean);

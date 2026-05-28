@@ -6,8 +6,11 @@
 
 import { LAYER_CONFIG } from '../../lib/layerConfig';
 
-const NATIONAL_LAYER_IDS = ['congressional', 'us-senate'];
-const STATE_LAYER_IDS = ['state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary'];
+// us-senate is the only true national layer here — it doubles as the state-FIPS
+// detector for wave 2. Congressional moved to byState mode (so we don't pull all
+// 444 districts) and is now queried in wave 2 alongside other state layers.
+const NATIONAL_LAYER_IDS = ['us-senate'];
+const STATE_LAYER_IDS = ['congressional', 'state-senate', 'state-house', 'school-unified', 'school-elementary', 'school-secondary'];
 
 async function queryPoint(layerId, config, geometry, stateFips = null) {
   const params = new URLSearchParams({

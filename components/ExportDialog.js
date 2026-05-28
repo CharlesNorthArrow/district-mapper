@@ -5,8 +5,9 @@ import { buildEnrichedCSV, downloadCSV, downloadPdfBlob } from '../lib/exportHel
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { CITY_COUNCIL_REGISTRY } from '../lib/cityCouncilRegistry';
 
-const NATIONAL_LAYER_IDS = new Set(['us-senate', 'congressional', 'tribal-lands', 'urban-areas']);
+const NATIONAL_LAYER_IDS = new Set(['us-senate', 'tribal-lands', 'urban-areas']);
 const STATE_LAYER_IDS = new Set([
+  'congressional',
   'counties', 'county-subdivisions', 'zcta', 'state-senate', 'state-house',
   'school-unified', 'incorporated-places', 'school-elementary', 'school-secondary', 'opportunity-zones',
 ]);
@@ -147,7 +148,7 @@ function getLayerDisplayName(layerId) {
 }
 
 function getGeoScope(layerId) {
-  if (['congressional', 'us-senate', 'tribal-lands', 'urban-areas'].includes(layerId)) return 'national';
+  if (['us-senate', 'tribal-lands', 'urban-areas'].includes(layerId)) return 'national';
   if (layerId.startsWith('council-') || layerId.startsWith('custom-')) return 'local';
   return 'state';
 }
