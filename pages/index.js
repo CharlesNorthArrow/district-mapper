@@ -52,12 +52,16 @@ async function persistBatchesToBlob({ batchesToSave, orgId }) {
   });
 }
 
-// Layers whose high-resolution boundaries can take several seconds to fetch
-// (paginated and/or large per-state payloads). Used to set expectations in
-// the loading badge so users don't think the app stalled.
+// Layers whose high-resolution boundaries can take several seconds to fetch.
+// Now that every layer runs at 0.0001 offset, the national-scope layers
+// (congressional, us-senate, urban-areas, tribal-lands) and the dense byState
+// layers (school districts, ZCTAs, county subdivisions, incorporated places,
+// state legislative) all fall into this bucket.
 const HEAVY_LAYERS = new Set([
   'zcta', 'school-unified', 'school-elementary', 'school-secondary',
-  'county-subdivisions',
+  'county-subdivisions', 'incorporated-places',
+  'congressional', 'us-senate', 'urban-areas', 'tribal-lands',
+  'state-senate', 'state-house', 'opportunity-zones',
 ]);
 
 function loadingBadgeSubtitle(layerId, elapsedSec) {
