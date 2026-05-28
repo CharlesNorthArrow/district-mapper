@@ -240,6 +240,9 @@ export default function Home() {
   const [starredLayers, setStarredLayers] = useState(() => new Set());
   const starredLayersRef = useRef(new Set());
   const starredLoadedRef = useRef(false);
+  // Single global cluster mode for the uploaded-points layer. Mapbox
+  // clustering is source-level so per-batch clustering isn't feasible.
+  const [clusterMode, setClusterMode] = useState(false);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const multiSelectModeRef = useRef(false);
   const isMobile = useIsMobile();
@@ -508,6 +511,11 @@ export default function Home() {
     }, 500);
     return () => clearTimeout(t);
   }, [starredLayers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Push cluster-mode changes through to the imperative map API.
+  useEffect(() => {
+    mapRef.current?.setClusterMode?.(clusterMode);
+  }, [clusterMode]);
 
   // Trigger preload whenever the active geography or starred set changes.
   // Covers session restore (selectedStates from localStorage) and manual
@@ -1519,6 +1527,8 @@ export default function Home() {
           onSelectedCitiesChange={handleSelectedCitiesChange}
           starredLayers={starredLayers}
           onToggleStar={toggleStar}
+          clusterMode={clusterMode}
+          onToggleCluster={() => setClusterMode((c) => !c)}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>

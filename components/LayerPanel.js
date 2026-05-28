@@ -57,6 +57,8 @@ export default function LayerPanel({
   onSelectedCitiesChange,
   starredLayers = new Set(),
   onToggleStar,
+  clusterMode = false,
+  onToggleCluster,
 }) {
   const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
   const setSelectedStates = onSelectedStatesChange;
@@ -446,6 +448,15 @@ export default function LayerPanel({
                       >ℹ</span>
                     )}
                   </label>
+                  <button
+                    onClick={() => onToggleCluster?.()}
+                    title={clusterMode ? 'Showing clusters — click to show individual points' : 'Show as clusters (groups nearby points)'}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: 13, padding: '0 0 0 6px', lineHeight: 1, flexShrink: 0,
+                      color: clusterMode ? 'var(--mid-blue)' : '#7a8fa6',
+                    }}
+                  >⦿</button>
                   {batch.isDemo ? (
                     <button
                       onClick={() => onHideDemo?.()}

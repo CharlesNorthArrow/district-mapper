@@ -69,6 +69,11 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
   const layerMetaRef = useRef({}); // { [layerId]: { fillId, displayName } }
   const lookupHighlightIds = useRef([]);
   const styleReadyRef = useRef(false); // true once the map 'load' event has fired; stays true permanently
+  // Cached point data + batch colors so we can rebuild the points source when
+  // clustering toggles on/off (Mapbox doesn't allow flipping `cluster` on an
+  // existing source — it has to be torn down and re-created).
+  const pointsDataRef = useRef({ features: [], batchColors: {} });
+  const clusterModeRef = useRef(false);
 
   useEffect(() => {
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -91,15 +96,79 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
 
-    map.once('load', () => {
-      styleReadyRef.current = true;
+    function buildPointsLayers(clustered) {
+      // Remove any pre-existing point layers / source so we can rebuild with
+      // the right `cluster` setting on the source.
+      for (const id of ['uploaded-points', 'uploaded-clusters', 'uploaded-cluster-count']) {
+        if (map.getLayer(id)) map.removeLayer(id);
+      }
+      if (map.getSource('uploaded-points')) map.removeSource('uploaded-points');
 
-      // Create the uploaded-points source and layer once — setPointLayer uses setData() to update
-      map.addSource('uploaded-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addSource('uploaded-points', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+        cluster: clustered,
+        clusterMaxZoom: 14,
+        clusterRadius: 50,
+      });
+
+      if (clustered) {
+        map.addLayer({
+          id: 'uploaded-clusters',
+          type: 'circle',
+          source: 'uploaded-points',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': [
+              'step', ['get', 'point_count'],
+              '#a9dadc', 25,
+              '#467c9d', 250,
+              '#1c3557',
+            ],
+            'circle-radius': [
+              'step', ['get', 'point_count'],
+              16, 25,
+              22, 250,
+              30,
+            ],
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#fff',
+            'circle-opacity': 0.9,
+          },
+        });
+        map.addLayer({
+          id: 'uploaded-cluster-count',
+          type: 'symbol',
+          source: 'uploaded-points',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': ['get', 'point_count_abbreviated'],
+            'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+            'text-size': 12,
+          },
+          paint: { 'text-color': '#fff' },
+        });
+
+        // Click cluster → zoom in to expand
+        map.on('click', 'uploaded-clusters', (e) => {
+          const feature = e.features?.[0];
+          if (!feature) return;
+          const clusterId = feature.properties.cluster_id;
+          map.getSource('uploaded-points').getClusterExpansionZoom(clusterId, (err, zoom) => {
+            if (err) return;
+            map.easeTo({ center: feature.geometry.coordinates, zoom });
+          });
+        });
+        map.on('mouseenter', 'uploaded-clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', 'uploaded-clusters', () => { map.getCanvas().style.cursor = ''; });
+      }
+
+      // Individual point layer — when clustered, only renders unclustered leftovers
       map.addLayer({
         id: 'uploaded-points',
         type: 'circle',
         source: 'uploaded-points',
+        ...(clustered ? { filter: ['!', ['has', 'point_count']] } : {}),
         paint: {
           'circle-radius': 5,
           'circle-color': '#e63947',
@@ -109,7 +178,7 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
         },
       });
 
-      const popup = new mapboxgl.Popup({ closeButton: true, maxWidth: '420px' });
+      const popup = popupRef.current ?? new mapboxgl.Popup({ closeButton: true, maxWidth: '420px' });
       popupRef.current = popup;
       map.on('click', 'uploaded-points', (e) => {
         const feature = e.features?.[0];
@@ -118,8 +187,16 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
       });
       map.on('mouseenter', 'uploaded-points', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'uploaded-points', () => { map.getCanvas().style.cursor = ''; });
+    }
+
+    map.once('load', () => {
+      styleReadyRef.current = true;
+      buildPointsLayers(false);
       onMapReady?.();
     });
+
+    // Expose buildPointsLayers to the imperative API via a ref-on-the-map
+    map.__buildPointsLayers = buildPointsLayers;
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -201,7 +278,10 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
         if (map.getLayer(lineId)) map.removeLayer(lineId);
         if (map.getSource(id)) map.removeSource(id);
 
-        const beforeLayer = map.getLayer('uploaded-points') ? 'uploaded-points' : undefined;
+        // Sit below the lowest upload-points layer so points/clusters stay on top.
+        const beforeLayer = map.getLayer('uploaded-clusters')
+          ? 'uploaded-clusters'
+          : (map.getLayer('uploaded-points') ? 'uploaded-points' : undefined);
         map.addSource(id, { type: 'geojson', data: geojson });
         map.addLayer({ id: fillId, type: 'fill', source: id, paint: { 'fill-color': color, 'fill-opacity': 0.1 } }, beforeLayer);
         map.addLayer({ id: lineId, type: 'line', source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } }, beforeLayer);
@@ -238,20 +318,21 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
       const map = mapRef.current;
       if (!map) return;
 
+      const features = points.map((p) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+        properties: { ...p },
+      }));
+      // Cache for cluster-mode rebuilds, which re-create the source and need
+      // to re-apply the current data + color expression.
+      pointsDataRef.current = { features, batchColors };
+
       const doUpdate = () => {
         const source = map.getSource('uploaded-points');
         if (!source) return;
+        source.setData({ type: 'FeatureCollection', features });
 
-        source.setData({
-          type: 'FeatureCollection',
-          features: points.map((p) => ({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-            properties: { ...p },
-          })),
-        });
-
-        if (points.length > 0) {
+        if (features.length > 0) {
           const entries = Object.entries(batchColors);
           const colorExpr = entries.length > 1
             ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
@@ -263,6 +344,34 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
 
       if (styleReadyRef.current) doUpdate();
       else map.once('load', doUpdate);
+    },
+
+    // Toggle source-level clustering. Mapbox doesn't let `cluster` change on
+    // an existing source, so we rebuild the source + layers and re-seed with
+    // the cached points/colors.
+    setClusterMode(enabled) {
+      const map = mapRef.current;
+      if (!map) return;
+      if (clusterModeRef.current === !!enabled) return;
+      clusterModeRef.current = !!enabled;
+      const apply = () => {
+        map.__buildPointsLayers?.(!!enabled);
+        const { features, batchColors } = pointsDataRef.current;
+        const source = map.getSource('uploaded-points');
+        if (source) source.setData({ type: 'FeatureCollection', features });
+        if (features.length > 0) {
+          const entries = Object.entries(batchColors);
+          const colorExpr = entries.length > 1
+            ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
+            : (entries[0]?.[1] ?? '#e63947');
+          if (map.getLayer('uploaded-points')) {
+            map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
+          }
+        }
+        map.triggerRepaint();
+      };
+      if (styleReadyRef.current) apply();
+      else map.once('load', apply);
     },
 
     fitBounds(bbox) {
