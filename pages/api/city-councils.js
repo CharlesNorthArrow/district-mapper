@@ -19,6 +19,27 @@ export default async function handler(req, res) {
   if (!config) {
     return res.status(404).json({ error: `City not in registry: ${city}` });
   }
+
+  // Socrata branch: NYC Open Data layers don't speak ArcGIS query syntax — fetch
+  // the full GeoJSON export directly. Small datasets only (NDAs are 6 features).
+  if (config.source === 'socrata') {
+    const url = `https://${config.socrataHost}/resource/${config.datasetId}.geojson?$limit=50000`;
+    try {
+      const upstream = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      const text = await upstream.text();
+      let geojson;
+      try { geojson = JSON.parse(text); } catch {
+        return res.status(502).json({ error: `Socrata returned non-JSON (status ${upstream.status})` });
+      }
+      if (geojson.error) {
+        return res.status(502).json({ error: geojson.message || geojson.error || 'Socrata error' });
+      }
+      return res.status(200).json(geojson);
+    } catch (err) {
+      return res.status(502).json({ error: `Failed to reach Socrata: ${err.message}` });
+    }
+  }
+
   if (!config.arcgisEndpoint) {
     return res.status(503).json({
       error: `ArcGIS endpoint for ${config.name} has not been configured yet`,
