@@ -51,7 +51,9 @@ export default async function handler(req, res) {
     outSR: '4326',
     outFields: config.districtField,
     returnGeometry: 'true',
-    where: 'OBJECTID IS NOT NULL',
+    // '1=1' is the universal "match all" filter — robust across endpoints
+    // that don't have an OBJECTID column (e.g. NYC CD uses FID).
+    where: '1=1',
     resultRecordCount: '500',
   });
 
