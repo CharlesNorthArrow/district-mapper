@@ -69,11 +69,12 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
   const layerMetaRef = useRef({}); // { [layerId]: { fillId, displayName } }
   const lookupHighlightIds = useRef([]);
   const styleReadyRef = useRef(false); // true once the map 'load' event has fired; stays true permanently
-  // Cached point data + batch colors so we can rebuild the points source when
-  // clustering toggles on/off (Mapbox doesn't allow flipping `cluster` on an
-  // existing source — it has to be torn down and re-created).
-  const pointsDataRef = useRef({ features: [], batchColors: {} });
-  const clusterModeRef = useRef(false);
+  // Each batch gets its own Mapbox source + layer set so clustering can be
+  // toggled per-batch (Mapbox's `cluster` flag is source-level — one global
+  // source can't have some features clustered and others not). Tracks the
+  // current shape so setBatches can reconcile against incoming state.
+  // batchStateRef.current: Map<batchId, { color, clustered, features }>
+  const batchStateRef = useRef(new Map());
 
   useEffect(() => {
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -96,35 +97,41 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
 
-    function buildPointsLayers(clustered) {
-      // Remove any pre-existing point layers / source so we can rebuild with
-      // the right `cluster` setting on the source.
-      for (const id of ['uploaded-points', 'uploaded-clusters', 'uploaded-cluster-count']) {
+    // IDs for a batch's source + layers. Keep them parameterised so we can
+    // add/remove cleanly per batch.
+    function batchIds(batchId) {
+      return {
+        src:    `points-src-${batchId}`,
+        point:  `points-${batchId}`,
+        cluster: `clusters-${batchId}`,
+        count:  `cluster-count-${batchId}`,
+      };
+    }
+
+    function addBatchLayers(batchId, color, clustered) {
+      const ids = batchIds(batchId);
+      // Clean up if already present (e.g. cluster mode flipped)
+      for (const id of [ids.count, ids.cluster, ids.point]) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
-      if (map.getSource('uploaded-points')) map.removeSource('uploaded-points');
+      if (map.getSource(ids.src)) map.removeSource(ids.src);
 
-      map.addSource('uploaded-points', {
+      map.addSource(ids.src, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
-        cluster: clustered,
+        cluster: !!clustered,
         clusterMaxZoom: 14,
         clusterRadius: 50,
       });
 
       if (clustered) {
         map.addLayer({
-          id: 'uploaded-clusters',
+          id: ids.cluster,
           type: 'circle',
-          source: 'uploaded-points',
+          source: ids.src,
           filter: ['has', 'point_count'],
           paint: {
-            'circle-color': [
-              'step', ['get', 'point_count'],
-              '#a9dadc', 25,
-              '#467c9d', 250,
-              '#1c3557',
-            ],
+            'circle-color': color,
             'circle-radius': [
               'step', ['get', 'point_count'],
               16, 25,
@@ -137,9 +144,9 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
           },
         });
         map.addLayer({
-          id: 'uploaded-cluster-count',
+          id: ids.count,
           type: 'symbol',
-          source: 'uploaded-points',
+          source: ids.src,
           filter: ['has', 'point_count'],
           layout: {
             'text-field': ['get', 'point_count_abbreviated'],
@@ -149,29 +156,28 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
           paint: { 'text-color': '#fff' },
         });
 
-        // Click cluster → zoom in to expand
-        map.on('click', 'uploaded-clusters', (e) => {
+        map.on('click', ids.cluster, (e) => {
           const feature = e.features?.[0];
           if (!feature) return;
           const clusterId = feature.properties.cluster_id;
-          map.getSource('uploaded-points').getClusterExpansionZoom(clusterId, (err, zoom) => {
+          map.getSource(ids.src)?.getClusterExpansionZoom(clusterId, (err, zoom) => {
             if (err) return;
             map.easeTo({ center: feature.geometry.coordinates, zoom });
           });
         });
-        map.on('mouseenter', 'uploaded-clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', 'uploaded-clusters', () => { map.getCanvas().style.cursor = ''; });
+        map.on('mouseenter', ids.cluster, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', ids.cluster, () => { map.getCanvas().style.cursor = ''; });
       }
 
-      // Individual point layer — when clustered, only renders unclustered leftovers
+      // Individual points — filtered to unclustered features when clustering is on.
       map.addLayer({
-        id: 'uploaded-points',
+        id: ids.point,
         type: 'circle',
-        source: 'uploaded-points',
+        source: ids.src,
         ...(clustered ? { filter: ['!', ['has', 'point_count']] } : {}),
         paint: {
           'circle-radius': 5,
-          'circle-color': '#e63947',
+          'circle-color': color,
           'circle-opacity': 0.85,
           'circle-stroke-width': 1,
           'circle-stroke-color': '#fff',
@@ -180,23 +186,32 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
 
       const popup = popupRef.current ?? new mapboxgl.Popup({ closeButton: true, maxWidth: '420px' });
       popupRef.current = popup;
-      map.on('click', 'uploaded-points', (e) => {
+      map.on('click', ids.point, (e) => {
         const feature = e.features?.[0];
         if (!feature) return;
         popup.setLngLat(e.lngLat).setHTML(buildPopupHTML(feature.properties)).addTo(map);
       });
-      map.on('mouseenter', 'uploaded-points', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'uploaded-points', () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', ids.point, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', ids.point, () => { map.getCanvas().style.cursor = ''; });
+    }
+
+    function removeBatchLayers(batchId) {
+      const ids = batchIds(batchId);
+      for (const id of [ids.count, ids.cluster, ids.point]) {
+        if (map.getLayer(id)) map.removeLayer(id);
+      }
+      if (map.getSource(ids.src)) map.removeSource(ids.src);
     }
 
     map.once('load', () => {
       styleReadyRef.current = true;
-      buildPointsLayers(false);
       onMapReady?.();
     });
 
-    // Expose buildPointsLayers to the imperative API via a ref-on-the-map
-    map.__buildPointsLayers = buildPointsLayers;
+    // Expose builders for the imperative API
+    map.__addBatchLayers = addBatchLayers;
+    map.__removeBatchLayers = removeBatchLayers;
+    map.__batchIds = batchIds;
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -278,10 +293,13 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
         if (map.getLayer(lineId)) map.removeLayer(lineId);
         if (map.getSource(id)) map.removeSource(id);
 
-        // Sit below the lowest upload-points layer so points/clusters stay on top.
-        const beforeLayer = map.getLayer('uploaded-clusters')
-          ? 'uploaded-clusters'
-          : (map.getLayer('uploaded-points') ? 'uploaded-points' : undefined);
+        // Sit below the first per-batch layer in stack order so all points and
+        // clusters stay on top of boundary fills/lines no matter which batch
+        // was created in which order.
+        const styleLayers = map.getStyle().layers || [];
+        const beforeLayer = styleLayers.find((l) =>
+          l.id.startsWith('clusters-') || l.id.startsWith('cluster-count-') || l.id.startsWith('points-')
+        )?.id;
         map.addSource(id, { type: 'geojson', data: geojson });
         map.addLayer({ id: fillId, type: 'fill', source: id, paint: { 'fill-color': color, 'fill-opacity': 0.1 } }, beforeLayer);
         map.addLayer({ id: lineId, type: 'line', source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } }, beforeLayer);
@@ -313,63 +331,59 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
       addedLayers.current.delete(id);
     },
 
-    // batchColors: { [batchId]: colorString } — used to color points per dataset
-    setPointLayer(points, batchColors = {}) {
+    // Reconcile per-batch sources + layers against incoming state.
+    // batches: [{ id, points, color, clustered }]
+    //   - missing batchIds (in state but not in incoming) → remove
+    //   - new batchIds → add and seed data
+    //   - existing batchIds where clustered changed → rebuild (cluster is
+    //     source-level in Mapbox and can't be flipped in place)
+    //   - existing batchIds where data/color is the same → leave alone
+    setBatches(batches) {
       const map = mapRef.current;
       if (!map) return;
 
-      const features = points.map((p) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-        properties: { ...p },
-      }));
-      // Cache for cluster-mode rebuilds, which re-create the source and need
-      // to re-apply the current data + color expression.
-      pointsDataRef.current = { features, batchColors };
-
-      const doUpdate = () => {
-        const source = map.getSource('uploaded-points');
-        if (!source) return;
-        source.setData({ type: 'FeatureCollection', features });
-
-        if (features.length > 0) {
-          const entries = Object.entries(batchColors);
-          const colorExpr = entries.length > 1
-            ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
-            : (entries[0]?.[1] ?? '#e63947');
-          map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
-        }
-        map.triggerRepaint();
-      };
-
-      if (styleReadyRef.current) doUpdate();
-      else map.once('load', doUpdate);
-    },
-
-    // Toggle source-level clustering. Mapbox doesn't let `cluster` change on
-    // an existing source, so we rebuild the source + layers and re-seed with
-    // the cached points/colors.
-    setClusterMode(enabled) {
-      const map = mapRef.current;
-      if (!map) return;
-      if (clusterModeRef.current === !!enabled) return;
-      clusterModeRef.current = !!enabled;
       const apply = () => {
-        map.__buildPointsLayers?.(!!enabled);
-        const { features, batchColors } = pointsDataRef.current;
-        const source = map.getSource('uploaded-points');
-        if (source) source.setData({ type: 'FeatureCollection', features });
-        if (features.length > 0) {
-          const entries = Object.entries(batchColors);
-          const colorExpr = entries.length > 1
-            ? ['match', ['get', '_batchId'], ...entries.flatMap(([id, c]) => [id, c]), '#e63947']
-            : (entries[0]?.[1] ?? '#e63947');
-          if (map.getLayer('uploaded-points')) {
-            map.setPaintProperty('uploaded-points', 'circle-color', colorExpr);
+        const incomingIds = new Set(batches.map((b) => b.id));
+
+        // Remove batches that are no longer present
+        for (const existingId of [...batchStateRef.current.keys()]) {
+          if (!incomingIds.has(existingId)) {
+            map.__removeBatchLayers?.(existingId);
+            batchStateRef.current.delete(existingId);
           }
         }
+
+        // Add or update each incoming batch
+        for (const b of batches) {
+          const features = b.points.map((p) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+            properties: { ...p },
+          }));
+          const prev = batchStateRef.current.get(b.id);
+
+          const needsRebuild =
+            !prev ||
+            prev.color !== b.color ||
+            !!prev.clustered !== !!b.clustered;
+
+          if (needsRebuild) {
+            map.__addBatchLayers?.(b.id, b.color, !!b.clustered);
+          }
+          const { src } = map.__batchIds(b.id);
+          const source = map.getSource(src);
+          if (source) source.setData({ type: 'FeatureCollection', features });
+
+          batchStateRef.current.set(b.id, {
+            color: b.color,
+            clustered: !!b.clustered,
+            featureCount: features.length,
+          });
+        }
+
         map.triggerRepaint();
       };
+
       if (styleReadyRef.current) apply();
       else map.once('load', apply);
     },
@@ -391,16 +405,33 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
       else map.once('load', doFly);
     },
 
+    // Apply the global-index filter to every per-batch point layer. For
+    // clustered batches the filter is combined with the unclustered
+    // predicate so we don't break the cluster split. Cluster aggregates
+    // themselves are not refilterable by attribute — they will continue to
+    // reflect the unfiltered total until clustering is turned off.
     filterPoints(indices) {
       const map = mapRef.current;
-      if (!map?.getLayer('uploaded-points')) return;
-      map.setFilter('uploaded-points', ['in', ['get', '_globalIndex'], ['literal', indices]]);
+      if (!map) return;
+      const indexFilter = ['in', ['get', '_globalIndex'], ['literal', indices]];
+      for (const [batchId, state] of batchStateRef.current) {
+        const ids = map.__batchIds?.(batchId);
+        if (!ids || !map.getLayer(ids.point)) continue;
+        const next = state.clustered
+          ? ['all', ['!', ['has', 'point_count']], indexFilter]
+          : indexFilter;
+        map.setFilter(ids.point, next);
+      }
     },
 
     clearPointFilter() {
       const map = mapRef.current;
-      if (!map?.getLayer('uploaded-points')) return;
-      map.setFilter('uploaded-points', null);
+      if (!map) return;
+      for (const [batchId, state] of batchStateRef.current) {
+        const ids = map.__batchIds?.(batchId);
+        if (!ids || !map.getLayer(ids.point)) continue;
+        map.setFilter(ids.point, state.clustered ? ['!', ['has', 'point_count']] : null);
+      }
     },
 
     filterBoundaryToDistrict(layerId, districtField, districtName, stateField) {
@@ -646,8 +677,11 @@ const MapView = forwardRef(function MapView({ onMoveEnd, onMapReady }, ref) {
         } catch { /* skip malformed geometries */ }
       }
 
-      // Insert labels above boundary fill but below points
-      const beforeLayer = map.getLayer('uploaded-points') ? 'uploaded-points' : undefined;
+      // Insert labels above boundary fill but below any batch's point/cluster layer.
+      const styleLayers = map.getStyle().layers || [];
+      const beforeLayer = styleLayers.find((l) =>
+        l.id.startsWith('clusters-') || l.id.startsWith('cluster-count-') || l.id.startsWith('points-')
+      )?.id;
       map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
       map.addLayer({
         id: lyrId,

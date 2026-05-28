@@ -240,9 +240,19 @@ export default function Home() {
   const [starredLayers, setStarredLayers] = useState(() => new Set());
   const starredLayersRef = useRef(new Set());
   const starredLoadedRef = useRef(false);
-  // Single global cluster mode for the uploaded-points layer. Mapbox
-  // clustering is source-level so per-batch clustering isn't feasible.
-  const [clusterMode, setClusterMode] = useState(false);
+  // Per-batch cluster mode. Mapbox clustering is source-level, so each batch
+  // gets its own source/layers (see MapView.setBatches) and can be toggled
+  // independently. Session-only — not persisted across reloads because
+  // batchIds are session-local (batch-0, batch-1, ...).
+  const [clusteredBatchIds, setClusteredBatchIds] = useState(() => new Set());
+  const toggleBatchCluster = useCallback((batchId) => {
+    setClusteredBatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  }, []);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const multiSelectModeRef = useRef(false);
   const isMobile = useIsMobile();
@@ -366,8 +376,9 @@ export default function Home() {
     setDataBatches(remaining);
     setHiddenBatches(prev => { const next = new Set(prev); next.delete(batchId); return next; });
     const visibleRemaining = remaining.filter(b => !hiddenBatches.has(b.id) && b.id !== batchId);
-    const batchColors = Object.fromEntries(visibleRemaining.map(b => [b.id, b.color]));
-    mapRef.current?.setPointLayer(visibleRemaining.flatMap(b => b.points), batchColors);
+    mapRef.current?.setBatches(visibleRemaining.map(b => ({
+      id: b.id, points: b.points, color: b.color, clustered: clusteredBatchIds.has(b.id),
+    })));
 
     if (isSignedInRef.current) {
       const realRemaining = remaining.filter(b => !b.isDemo);
@@ -511,11 +522,6 @@ export default function Home() {
     }, 500);
     return () => clearTimeout(t);
   }, [starredLayers]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Push cluster-mode changes through to the imperative map API.
-  useEffect(() => {
-    mapRef.current?.setClusterMode?.(clusterMode);
-  }, [clusterMode]);
 
   // Trigger preload whenever the active geography or starred set changes.
   // Covers session restore (selectedStates from localStorage) and manual
@@ -680,16 +686,25 @@ export default function Home() {
   // Single source of truth: sync map points whenever any relevant state changes
   useEffect(() => {
     if (!mapReady) return;
-    if (dataBatches.length === 0) return;
+    if (dataBatches.length === 0) {
+      mapRef.current?.setBatches([]);
+      return;
+    }
     if (focusedBatchId) {
       const batch = dataBatches.find(b => b.id === focusedBatchId);
-      if (batch) mapRef.current?.setPointLayer(batch.points, { [batch.id]: batch.color });
+      if (batch) {
+        mapRef.current?.setBatches([{
+          id: batch.id, points: batch.points, color: batch.color,
+          clustered: clusteredBatchIds.has(batch.id),
+        }]);
+      }
     } else {
       const visibleBatches = dataBatches.filter(b => !hiddenBatches.has(b.id));
-      const batchColors = Object.fromEntries(visibleBatches.map(b => [b.id, b.color]));
-      mapRef.current?.setPointLayer(visibleBatches.flatMap(b => b.points), batchColors);
+      mapRef.current?.setBatches(visibleBatches.map(b => ({
+        id: b.id, points: b.points, color: b.color, clustered: clusteredBatchIds.has(b.id),
+      })));
     }
-  }, [dataBatches, hiddenBatches, focusedBatchId, mapReady]);
+  }, [dataBatches, hiddenBatches, focusedBatchId, mapReady, clusteredBatchIds]);
 
   // Update choropleth when user clicks a batch tab in AnalysisPanel
   useEffect(() => {
@@ -852,7 +867,7 @@ export default function Home() {
     for (const layerId of activeLayersRef.current) {
       mapRef.current?.removeBoundaryLayer(layerId);
     }
-    mapRef.current?.setPointLayer([], {});
+    mapRef.current?.setBatches([]);
     setDataBatches((prev) => prev.filter((b) => b.isDemo));
     setEnrichedPoints([]);
     setActiveLayers([]);
@@ -1527,8 +1542,8 @@ export default function Home() {
           onSelectedCitiesChange={handleSelectedCitiesChange}
           starredLayers={starredLayers}
           onToggleStar={toggleStar}
-          clusterMode={clusterMode}
-          onToggleCluster={() => setClusterMode((c) => !c)}
+          clusteredBatchIds={clusteredBatchIds}
+          onToggleBatchCluster={toggleBatchCluster}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
