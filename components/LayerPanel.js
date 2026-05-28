@@ -55,6 +55,8 @@ export default function LayerPanel({
   selectedCities = [],
   onSelectedStatesChange,
   onSelectedCitiesChange,
+  starredLayers = new Set(),
+  onToggleStar,
 }) {
   const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
   const setSelectedStates = onSelectedStatesChange;
@@ -223,6 +225,7 @@ export default function LayerPanel({
     const canAnalyze = hasData && isActive && !locked;
     const layerColor = layerColors[layerId];
     const showBorder = isActive && !!layerColor;
+    const isStarred = starredLayers.has(layerId);
     return (
       <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1, borderLeft: showBorder ? `3px solid ${layerColor}` : '3px solid transparent', paddingLeft: showBorder ? 5 : 8 }}>
         <input
@@ -258,8 +261,29 @@ export default function LayerPanel({
           </span>
         )}
         {isLoading && !locked && <span style={styles.spinner}>↻</span>}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleStar?.(layerId); }}
+          title={isStarred ? 'Unstar — remove from preloaded geographies' : 'Star to pin to top and preload'}
+          style={{ ...styles.starBtn, color: isStarred ? '#f59e0b' : '#c5d0da' }}
+          aria-pressed={isStarred}
+        >
+          {isStarred ? '★' : '☆'}
+        </button>
       </div>
     );
+  }
+
+  // Sort starred layer IDs to the top within their section, preserving the
+  // original order within each group.
+  function sortStarredFirst(ids) {
+    const starred = [];
+    const rest = [];
+    for (const id of ids) {
+      if (starredLayers.has(id)) starred.push(id);
+      else rest.push(id);
+    }
+    return [...starred, ...rest];
   }
 
   return (
@@ -469,7 +493,7 @@ export default function LayerPanel({
         </button>
         {openSections.national && (
           <div style={styles.sectionBody}>
-            {NATIONAL_LAYERS.map((layerId) => (
+            {sortStarredFirst(NATIONAL_LAYERS).map((layerId) => (
               <LayerRow
                 key={layerId}
                 layerId={layerId}
@@ -547,7 +571,7 @@ export default function LayerPanel({
 
             {selectedStates.length > 0 ? (
               <div style={styles.layerGroup}>
-                {STATE_LAYERS.map((layerId) => (
+                {sortStarredFirst(STATE_LAYERS).map((layerId) => (
                   <LayerRow
                     key={layerId}
                     layerId={layerId}
@@ -635,30 +659,37 @@ export default function LayerPanel({
             {/* Layers per selected city */}
             {selectedCities.length > 0 && (
               <div style={styles.layerGroup}>
-                {selectedCities.map((slug) => (
-                  <div key={slug} style={{ marginBottom: 6 }}>
-                    <div style={styles.cityGroupLabel}>
-                      {CITY_COUNCIL_REGISTRY[slug]?.name || slug}
+                {selectedCities.map((slug) => {
+                  // Council districts + extra layers, with starred ones pinned first.
+                  const items = [
+                    { slug, layerId: `council-${slug}`, label: 'Council Districts' },
+                    ...(CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []).map(({ slug: extraSlug, label }) => ({
+                      slug: extraSlug, layerId: `council-${extraSlug}`, label,
+                    })),
+                  ];
+                  const sorted = [...items].sort((a, b) => {
+                    const aStar = starredLayers.has(a.layerId) ? 0 : 1;
+                    const bStar = starredLayers.has(b.layerId) ? 0 : 1;
+                    return aStar - bStar;
+                  });
+                  return (
+                    <div key={slug} style={{ marginBottom: 6 }}>
+                      <div style={styles.cityGroupLabel}>
+                        {CITY_COUNCIL_REGISTRY[slug]?.name || slug}
+                      </div>
+                      {sorted.map(({ slug: itemSlug, layerId, label }) => (
+                        <LayerRow
+                          key={layerId}
+                          layerId={layerId}
+                          label={label}
+                          onToggle={(_, checked) => onCityLayerToggle(itemSlug, checked)}
+                          type="city"
+                          citySlug={itemSlug}
+                        />
+                      ))}
                     </div>
-                    <LayerRow
-                      layerId={`council-${slug}`}
-                      label="Council Districts"
-                      onToggle={(_, checked) => onCityLayerToggle(slug, checked)}
-                      type="city"
-                      citySlug={slug}
-                    />
-                    {(CITY_COUNCIL_REGISTRY[slug]?.extraLayers || []).map(({ slug: extraSlug, label }) => (
-                      <LayerRow
-                        key={extraSlug}
-                        layerId={`council-${extraSlug}`}
-                        label={label}
-                        onToggle={(_, checked) => onCityLayerToggle(extraSlug, checked)}
-                        type="city"
-                        citySlug={extraSlug}
-                      />
-                    ))}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -967,6 +998,11 @@ const styles = {
     display: 'inline-block', fontSize: 10, fontWeight: 700,
     padding: '1px 5px', borderRadius: 8,
     lineHeight: 1.5, flexShrink: 0,
+  },
+  starBtn: {
+    background: 'none', border: 'none', cursor: 'pointer',
+    fontSize: 14, lineHeight: 1, padding: '0 2px',
+    flexShrink: 0,
   },
   modeToggleContainer: {
     display: 'flex',

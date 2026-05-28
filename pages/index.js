@@ -234,6 +234,12 @@ export default function Home() {
   const [suggestedLayerIds, setSuggestedLayerIds] = useState([]);
   const [selectedStates, setSelectedStates] = useState([]);
   const [selectedCities, setSelectedCities] = useState([]);
+  // Geography layers the user has starred. Persists to localStorage for
+  // anonymous users and to orgs.starred_layers for signed-in users. Drives
+  // sort-to-top in the LayerPanel and background preloading after upload.
+  const [starredLayers, setStarredLayers] = useState(() => new Set());
+  const starredLayersRef = useRef(new Set());
+  const starredLoadedRef = useRef(false);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const multiSelectModeRef = useRef(false);
   const isMobile = useIsMobile();
@@ -249,7 +255,14 @@ export default function Home() {
       setTierState(getTier());
       const extent = JSON.parse(localStorage.getItem('dm_last_extent') || 'null');
       if (extent) savedExtentRef.current = extent;
-    } catch {}
+      const starred = JSON.parse(localStorage.getItem('dm_starred_layers') || '[]');
+      if (Array.isArray(starred) && starred.length > 0) {
+        const s = new Set(starred.filter((x) => typeof x === 'string'));
+        setStarredLayers(s);
+        starredLayersRef.current = s;
+      }
+      starredLoadedRef.current = true;
+    } catch { starredLoadedRef.current = true; }
   }, []);
 
   // Load demo dataset on first visit (unless hidden or real data already loaded)
@@ -383,6 +396,149 @@ export default function Home() {
     if (isSignedInRef.current) {
       try { localStorage.setItem('dm_selected_cities', JSON.stringify(cities)); } catch {}
     }
+  }
+
+  // Background-prefetch cache for starred layers. Lives across the session
+  // so a click on a starred layer skips its fetch and renders from memory.
+  // Key shape:
+  //   national: layerId            (e.g. "us-senate")
+  //   state:    "layerId|fips,..." (sorted, comma-joined FIPS)
+  //   council:  layerId            (e.g. "council-nyc-cd")
+  const prefetchedRef = useRef(new Map());
+  const preloadAbortRef = useRef(null);
+
+  function prefetchKey(layerId, fipsArray) {
+    if (!fipsArray?.length) return layerId;
+    return `${layerId}|${[...fipsArray].sort().join(',')}`;
+  }
+
+  // Fire-and-forget background fetches for starred layers, scoped to the
+  // detected geography after upload. Skips on slow connections and aborts
+  // any prior in-flight prefetch session.
+  async function preloadStarredLayers({ stateFipsArray, citySlugs }) {
+    const starred = starredLayersRef.current;
+    if (!starred || starred.size === 0) return;
+
+    // Skip on slow connections — bandwidth would hurt more than help.
+    const conn = typeof navigator !== 'undefined' ? navigator.connection : null;
+    if (conn?.effectiveType && /^(slow-2g|2g)$/.test(conn.effectiveType)) return;
+    if (conn?.saveData) return;
+
+    preloadAbortRef.current?.abort();
+    const ac = new AbortController();
+    preloadAbortRef.current = ac;
+
+    const jobs = [];
+    for (const layerId of starred) {
+      if (isLayerLocked(layerId, tierRef.current)) continue;
+      if (layerId.startsWith('council-')) {
+        const slug = layerId.slice('council-'.length);
+        // Only preload council layers whose city is among the detected ones,
+        // or whose city is currently in the user's selection.
+        const isRelevant = citySlugs.includes(slug) ||
+          citySlugs.some((cs) => (CITY_COUNCIL_REGISTRY[cs]?.extraLayers || [])
+            .some((e) => e.slug === slug));
+        if (!isRelevant) continue;
+        const key = prefetchKey(layerId, null);
+        if (prefetchedRef.current.has(key)) continue;
+        jobs.push({ url: `/api/city-councils?city=${slug}`, key });
+        continue;
+      }
+      const cfg = LAYER_CONFIG[layerId];
+      if (!cfg) continue;
+      if (cfg.queryMode === 'national') {
+        const key = prefetchKey(layerId, null);
+        if (prefetchedRef.current.has(key)) continue;
+        jobs.push({ url: `/api/boundaries?layer=${layerId}`, key });
+      } else if (stateFipsArray.length > 0) {
+        const key = prefetchKey(layerId, stateFipsArray);
+        if (prefetchedRef.current.has(key)) continue;
+        // For multi-state, fetch each and merge — same shape handleStateLayerToggle uses.
+        jobs.push({
+          urls: stateFipsArray.map((f) => `/api/boundaries?layer=${layerId}&stateFips=${f}`),
+          key,
+        });
+      }
+    }
+
+    // Sequential so we don't compete with the user's own clicks for bandwidth.
+    for (const job of jobs) {
+      if (ac.signal.aborted) return;
+      try {
+        if (job.url) {
+          const r = await fetch(job.url, { signal: ac.signal });
+          if (!r.ok) continue;
+          const data = await r.json();
+          prefetchedRef.current.set(job.key, data);
+        } else {
+          const results = await Promise.all(
+            job.urls.map((u) => fetch(u, { signal: ac.signal }).then((r) => r.ok ? r.json() : null))
+          );
+          if (results.some((r) => r == null)) continue;
+          const merged = { type: 'FeatureCollection', features: results.flatMap((r) => r.features || []) };
+          prefetchedRef.current.set(job.key, merged);
+        }
+      } catch { /* aborted or network error — silently skip */ }
+    }
+  }
+
+  // Toggle a layer's starred state. Updates ref + state + localStorage
+  // synchronously; the debounced effect below pushes to the server when signed in.
+  const toggleStar = useCallback((layerId) => {
+    const next = new Set(starredLayersRef.current);
+    if (next.has(layerId)) next.delete(layerId);
+    else next.add(layerId);
+    starredLayersRef.current = next;
+    setStarredLayers(next);
+    try { localStorage.setItem('dm_starred_layers', JSON.stringify([...next])); } catch {}
+  }, []);
+
+  // Debounced server sync: when signed in, push starredLayers changes to
+  // orgs.starred_layers ~500ms after the last mutation. Skips the initial
+  // hydration where state matches what the merge effect just set.
+  useEffect(() => {
+    if (!isSignedInRef.current) return;
+    if (!starredLoadedRef.current) return;
+    const t = setTimeout(() => {
+      fetch('/api/auth/starred-layers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starredLayers: [...starredLayers] }),
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [starredLayers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Trigger preload whenever the active geography or starred set changes.
+  // Covers session restore (selectedStates from localStorage) and manual
+  // state additions. The cache inside preloadStarredLayers already de-dups,
+  // so calling repeatedly is cheap.
+  useEffect(() => {
+    if (!starredLoadedRef.current) return;
+    if (selectedStates.length === 0 && selectedCities.length === 0) return;
+    const stateFipsArray = selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean);
+    const t = setTimeout(() => {
+      preloadStarredLayers({ stateFipsArray, citySlugs: selectedCities });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [selectedStates, selectedCities, starredLayers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // PUT with merge=true on sign-in: union local + server, adopt result.
+  async function syncStarredLayersOnSignIn() {
+    try {
+      const local = [...starredLayersRef.current];
+      const res = await fetch('/api/auth/starred-layers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starredLayers: local, merge: true }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const merged = new Set(Array.isArray(data.starredLayers) ? data.starredLayers : []);
+      starredLayersRef.current = merged;
+      setStarredLayers(merged);
+      try { localStorage.setItem('dm_starred_layers', JSON.stringify([...merged])); } catch {}
+    } catch {}
   }
 
   function toggleMultiSelectMode() {
@@ -743,6 +899,9 @@ export default function Home() {
             if (Array.isArray(savedStates) && savedStates.length > 0) setSelectedStates(savedStates);
             if (Array.isArray(savedCities) && savedCities.length > 0) setSelectedCities(savedCities);
           } catch {}
+          // Merge any anonymous-session starred layers into the server set, then
+          // adopt the merged result as the source of truth across this device.
+          syncStarredLayersOnSignIn();
           autoReloadDataset();
         } else {
           // Non-logged-in visitor: default to NY + NYC
@@ -1077,7 +1236,16 @@ export default function Home() {
   const handleLayerToggle = useCallback(async (layerId, enabled) => {
     if (!enabled) { removeLayer(layerId); return; }
     if (isLayerLocked(layerId, tierRef.current)) return;
-    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}`, LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR);
+    const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
+    const cached = prefetchedRef.current.get(prefetchKey(layerId, null));
+    if (cached) {
+      mapRef.current?.addBoundaryLayer(layerId, cached, color);
+      setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
+      setLayerGeojson((prev) => ({ ...prev, [layerId]: cached }));
+      setLayerColors((prev) => ({ ...prev, [layerId]: color }));
+      return;
+    }
+    await fetchAndAddLayer(layerId, `/api/boundaries?layer=${layerId}`, color);
   }, []);
 
   // State layers — fipsArray may contain multiple states; fetch in parallel and merge
@@ -1085,6 +1253,15 @@ export default function Home() {
     if (!enabled || !fipsArray?.length) { removeLayer(layerId); return; }
     if (isLayerLocked(layerId, tierRef.current)) return;
     const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
+    const cached = prefetchedRef.current.get(prefetchKey(layerId, fipsArray));
+    if (cached) {
+      mapRef.current?.addBoundaryLayer(layerId, cached, color);
+      setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
+      setLayerGeojson((prev) => ({ ...prev, [layerId]: cached }));
+      setLayerColors((prev) => ({ ...prev, [layerId]: color }));
+      layerFipsRef.current[layerId] = fipsArray;
+      return;
+    }
     setLoadingLayer(layerId);
     try {
       const results = await Promise.all(
@@ -1116,6 +1293,14 @@ export default function Home() {
     if (!enabled) { removeLayer(layerId); return; }
     if (isLayerLocked(layerId, tierRef.current)) return;
     const color = LAYER_COLORS[layerId] || DEFAULT_LAYER_COLOR;
+    const cached = prefetchedRef.current.get(prefetchKey(layerId, null));
+    if (cached) {
+      mapRef.current?.addBoundaryLayer(layerId, cached, color);
+      setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
+      setLayerGeojson((prev) => ({ ...prev, [layerId]: cached }));
+      setLayerColors((prev) => ({ ...prev, [layerId]: color }));
+      return;
+    }
     await fetchAndAddLayer(layerId, `/api/city-councils?city=${citySlug}`, color);
   }, []);
 
@@ -1227,6 +1412,13 @@ export default function Home() {
       if (detectedStates.length > 0 || detectedCities.length > 0) {
         setGeoSuggestions({ states: detectedStates, cities: detectedCities });
       }
+      // Kick off background prefetch of any starred layers, scoped to the
+      // detected geography. Delays slightly so the upload's own work (geocode
+      // success rendering, fitBounds) doesn't compete for network/main-thread.
+      const stateFipsArray = detectedStates.map((s) => STATE_FIPS[s]).filter(Boolean);
+      setTimeout(() => {
+        preloadStarredLayers({ stateFipsArray, citySlugs: detectedCities });
+      }, 600);
     }
 
     if (!isAdd && geos) setSuggestedLayerIds(getLayerIdsFromGeos(geos));
@@ -1325,6 +1517,8 @@ export default function Home() {
           selectedCities={selectedCities}
           onSelectedStatesChange={handleSelectedStatesChange}
           onSelectedCitiesChange={handleSelectedCitiesChange}
+          starredLayers={starredLayers}
+          onToggleStar={toggleStar}
         />
 
         <div style={{ flex: 1, position: 'relative' }}>
