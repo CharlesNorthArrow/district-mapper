@@ -14,13 +14,19 @@ export default async function handler(req, res) {
   if (!missionText?.trim()) {
     return res.status(400).json({ error: 'missionText required' });
   }
+  const constituencyArea = typeof req.body.constituencyArea === 'string'
+    ? req.body.constituencyArea.trim() : '';
 
-  const prompt = `Extract 3 to 5 short search keywords from this nonprofit mission description.
+  const geoLine = constituencyArea
+    ? `\nGeographic focus: ${constituencyArea}. Where the org's focus is sub-state, prefer keywords likely to appear in bills affecting that area (e.g. NYC-specific terms, urban housing, etc.). If the focus is statewide, no geographic bias is needed.`
+    : '';
+
+  const prompt = `Extract 3 to 5 short search keywords from this nonprofit organization description.
 These keywords will be used to search a state legislative database for relevant bills.
 Return only a JSON array of strings. No preamble, no explanation.
-Each keyword should be 1-3 words, specific, and policy-relevant.
+Each keyword should be 1-3 words, specific, and policy-relevant.${geoLine}
 
-Mission: ${JSON.stringify(missionText)}
+Organization: ${JSON.stringify(missionText)}
 
 Example output: ["immigration", "tenant rights", "legal aid", "housing", "deportation"]`;
 

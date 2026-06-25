@@ -10,6 +10,7 @@ export default function AccountPage() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState('');
   const [orgDescription, setOrgDescription] = useState('');
+  const [constituencyArea, setConstituencyArea] = useState('');
   const [descSaving, setDescSaving] = useState(false);
   const [descSavedFlash, setDescSavedFlash] = useState(false);
   const [descError, setDescError] = useState('');
@@ -24,6 +25,7 @@ export default function AccountPage() {
         if (!data.orgId) { router.replace('/onboarding'); return; }
         setProfile(data);
         setOrgDescription(data.orgDescription || '');
+        setConstituencyArea(data.constituencyArea || '');
       })
       .catch(() => router.replace('/'));
   }, [isLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -35,11 +37,12 @@ export default function AccountPage() {
       const res = await fetch('/api/account/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgDescription }),
+        body: JSON.stringify({ orgDescription, constituencyArea }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`);
       setOrgDescription(data.orgDescription);
+      setConstituencyArea(data.constituencyArea);
       setDescSavedFlash(true);
       setTimeout(() => setDescSavedFlash(false), 2000);
     } catch (e) {
@@ -130,6 +133,26 @@ export default function AccountPage() {
                 color: '#1c3557',
               }}
             />
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#1c3557', display: 'block', marginBottom: 4 }}>
+                Constituency area
+              </label>
+              <input
+                type="text"
+                value={constituencyArea}
+                onChange={(e) => { setConstituencyArea(e.target.value); setDescError(''); }}
+                placeholder="e.g. North Bronx, Bronx and Brooklyn, NY Statewide"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  fontFamily: "'Open Sans', sans-serif", fontSize: 13,
+                  padding: '9px 12px', border: '1.5px solid #a9dadc',
+                  borderRadius: 6, outline: 'none', color: '#1c3557',
+                }}
+              />
+              <p style={{ fontSize: 11, color: '#7a8fa6', marginTop: 4 }}>
+                Where your constituents are (a neighborhood, set of areas, or statewide). Helps prioritize locally relevant bills.
+              </p>
+            </div>
             {descError && <p style={errorText}>{descError}</p>}
             <button
               onClick={handleSaveDescription}
@@ -141,7 +164,7 @@ export default function AccountPage() {
                 cursor: descSaving ? 'not-allowed' : 'pointer',
               }}
             >
-              {descSaving ? 'Saving…' : descSavedFlash ? 'Saved ✓' : 'Save description'}
+              {descSaving ? 'Saving…' : descSavedFlash ? 'Saved ✓' : 'Save profile'}
             </button>
           </div>
 

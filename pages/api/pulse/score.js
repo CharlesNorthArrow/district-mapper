@@ -13,6 +13,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const { missionText, bills, districtName, level, repNames = [] } = req.body;
+  const constituencyArea = typeof req.body.constituencyArea === 'string'
+    ? req.body.constituencyArea.trim() : '';
 
   if (!missionText || !bills?.length) {
     return res.status(400).json({ error: 'missionText and bills required' });
@@ -25,10 +27,14 @@ export default async function handler(req, res) {
     abstract: b.abstract,
   }));
 
+  const geoLine = constituencyArea
+    ? `\nConstituency / geographic focus: ${constituencyArea}. Bills that affect this area or its constituents specifically (e.g. NYC bills for a Bronx-based org) should score notably higher than purely statewide bills of similar topical match.`
+    : '';
+
   const prompt = `You are helping a nonprofit monitor state legislation relevant to their work.
 
 Organization mission: ${JSON.stringify(missionText)}
-Legislative scope: ${level} — ${districtName}
+Legislative scope: ${level} — ${districtName}${geoLine}
 
 Score each bill for relevance to this organization's mission.
 Return ONLY a valid JSON array. No preamble, no markdown, no explanation.

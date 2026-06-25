@@ -1,12 +1,18 @@
 // Shown when no Organization description is saved yet, or when the user clicks Edit.
-// On submit: persists via saveOrgDescription (DB if logged in, localStorage otherwise)
-// then calls onSubmit(value) to trigger a scan.
+// On submit: persists via saveOrgProfile (DB if logged in, localStorage otherwise)
+// then calls onSubmit({ orgDescription, constituencyArea }) to trigger a scan.
 
 import { useState } from 'react';
-import { saveOrgDescription } from '../../lib/orgContext';
+import { saveOrgProfile } from '../../lib/orgContext';
 
-export default function OrgContextForm({ onSubmit, initialValue = '', loggedIn = false }) {
+export default function OrgContextForm({
+  onSubmit,
+  initialValue = '',
+  initialConstituencyArea = '',
+  loggedIn = false,
+}) {
   const [text, setText] = useState(initialValue);
+  const [constituencyArea, setConstituencyArea] = useState(initialConstituencyArea);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -17,8 +23,14 @@ export default function OrgContextForm({ onSubmit, initialValue = '', loggedIn =
     }
     setSaving(true);
     try {
-      const { value } = await saveOrgDescription(text, { loggedIn });
-      onSubmit(value);
+      const saved = await saveOrgProfile(
+        { orgDescription: text, constituencyArea },
+        { loggedIn }
+      );
+      onSubmit({
+        orgDescription: saved.orgDescription,
+        constituencyArea: saved.constituencyArea,
+      });
     } catch (e) {
       setError(e.message || 'Could not save.');
     } finally {
@@ -52,6 +64,28 @@ export default function OrgContextForm({ onSubmit, initialValue = '', loggedIn =
           color: '#1c3557',
         }}
       />
+
+      <div style={{ marginTop: 12 }}>
+        <label style={{ fontFamily: "'Open Sans', sans-serif", fontSize: 13, color: '#1c3557', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+          Constituency area
+        </label>
+        <input
+          type="text"
+          value={constituencyArea}
+          onChange={e => { setConstituencyArea(e.target.value); setError(''); }}
+          placeholder="e.g. North Bronx, Bronx and Brooklyn, NY Statewide"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            fontFamily: "'Open Sans', sans-serif", fontSize: 13,
+            padding: '9px 12px', border: '1.5px solid #a9dadc',
+            borderRadius: 6, outline: 'none', color: '#1c3557',
+          }}
+        />
+        <p style={{ fontFamily: "'Open Sans', sans-serif", fontSize: 11, color: '#7a8fa6', marginTop: 4 }}>
+          Where your constituents are (a neighborhood, set of areas, or statewide). Helps prioritize locally relevant bills.
+        </p>
+      </div>
+
       {error && (
         <p style={{ color: '#e63947', fontSize: 12, marginTop: 4 }}>{error}</p>
       )}

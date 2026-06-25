@@ -4,6 +4,7 @@ import { pdf } from '@react-pdf/renderer';
 import BillFeed from '../components/PolicyPulse/BillFeed';
 import PolicyPDFDoc from '../components/PolicyPulse/PolicyPDF';
 import { downloadPdfBlob } from '../lib/exportHelpers';
+import { loadOrgProfile, saveOrgProfile } from '../lib/orgContext';
 
 const BODIES = [
   { value: 'state-senate', label: 'State Senate' },
@@ -38,6 +39,12 @@ const errorStyle = { fontSize: 11, color: '#e63947', marginTop: 4 };
 export default function PolicyPage() {
   const router = useRouter();
   const [authStatus, setAuthStatus] = useState('loading'); // 'loading' | 'ok' | 'blocked'
+  const [orgDescription, setOrgDescription]     = useState('');
+  const [constituencyArea, setConstituencyArea] = useState('');
+  const [state, setState]       = useState('NY');
+  const [body, setBody]         = useState('state-senate');
+  const [district, setDistrict] = useState('');
+  const [errors, setErrors]     = useState({});
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -45,18 +52,15 @@ export default function PolicyPage() {
       .then(data => {
         if (data.loggedIn && (data.tier === 'pro' || data.tier === 'enterprise')) {
           setAuthStatus('ok');
+          const { orgDescription: desc, constituencyArea: area } = loadOrgProfile(data);
+          if (desc) setOrgDescription(desc);
+          if (area) setConstituencyArea(area);
         } else {
           setAuthStatus('blocked');
         }
       })
       .catch(() => setAuthStatus('blocked'));
   }, []);
-
-  const [mission,  setMission]  = useState('');
-  const [state,    setState]    = useState('NY');
-  const [body,     setBody]     = useState('state-senate');
-  const [district, setDistrict] = useState('');
-  const [errors,   setErrors]   = useState({});
 
   const [phase,          setPhase]          = useState('form'); // 'form' | 'scanning' | 'results'
   const [bills,          setBills]          = useState([]);
@@ -68,7 +72,7 @@ export default function PolicyPage() {
 
   function validate() {
     const nextErrors = {};
-    if (mission.trim().length < 20) nextErrors.mission = 'Please describe your mission in at least a sentence.';
+    if (orgDescription.trim().length < 20) nextErrors.orgDescription = 'Please describe your organization in at least a sentence.';
     if (!district.trim() || !/^\d+$/.test(district.trim())) nextErrors.district = 'Enter a valid district number.';
     if (Object.keys(nextErrors).length > 0) setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -93,13 +97,17 @@ export default function PolicyPage() {
   async function handleScan() {
     if (!validate()) return;
 
-    const missionText = mission.trim();
+    const missionText = orgDescription.trim();
+    const area = constituencyArea.trim();
     const label = buildDistrictName(state, body, district.trim());
     setDistrictLabel(label);
     setPhase('scanning');
     setError('');
     setBills([]);
     setCandidateCount(null);
+
+    // Best-effort persist — Pro users on this page are always signed in.
+    saveOrgProfile({ orgDescription: missionText, constituencyArea: area }, { loggedIn: true }).catch(() => {});
 
     let currentStep = 'keywords';
     try {
@@ -110,7 +118,7 @@ export default function PolicyPage() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ missionText }),
+          body: JSON.stringify({ missionText, constituencyArea: area }),
         },
         30000,
         'Keyword extraction',
@@ -156,6 +164,7 @@ export default function PolicyPage() {
             districtName: label,
             level: body,
             repNames: [],
+            constituencyArea: area,
           }),
         },
         120000,
@@ -183,7 +192,7 @@ export default function PolicyPage() {
         <PolicyPDFDoc
           bills={bills}
           districtName={districtLabel}
-          mission={mission}
+          mission={orgDescription}
           savedAt={new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
         />
       ).toBlob();
@@ -254,7 +263,7 @@ export default function PolicyPage() {
             Scan state legislation for your district
           </h1>
           <p style={{ color: '#555', fontSize: 14, lineHeight: 1.6 }}>
-            Describe your mission, pick your district, and Policy Pulse will find and rank relevant
+            Describe your organization, pick your district, and Policy Pulse will find and rank relevant
             active bills — scored for your specific policy area.
           </p>
         </div>
@@ -268,16 +277,28 @@ export default function PolicyPage() {
             display: 'flex', flexDirection: 'column', gap: 20,
           }}>
             <div>
-              <label style={fieldLabel}>What is your organization's area of work or mission?</label>
+              <label style={fieldLabel}>Organization description</label>
               <textarea
-                value={mission}
-                onChange={ev => { setMission(ev.target.value); setErrors(v => ({ ...v, mission: '' })); }}
+                value={orgDescription}
+                onChange={ev => { setOrgDescription(ev.target.value); setErrors(v => ({ ...v, orgDescription: '' })); }}
                 placeholder="e.g. We provide free legal services to low-income immigrants facing deportation in New York City, with a focus on asylum seekers and victims of trafficking."
                 rows={4}
                 style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
               />
-              {errors.mission && <p style={errorStyle}>{errors.mission}</p>}
-              <p style={fieldHint}>2–3 sentences works best. This shapes the keyword search and bill scoring.</p>
+              {errors.orgDescription && <p style={errorStyle}>{errors.orgDescription}</p>}
+              <p style={fieldHint}>2–3 sentences works best. This shapes the keyword search and bill scoring. Saved to your account.</p>
+            </div>
+
+            <div>
+              <label style={fieldLabel}>Constituency area</label>
+              <input
+                type="text"
+                value={constituencyArea}
+                onChange={ev => setConstituencyArea(ev.target.value)}
+                placeholder="e.g. North Bronx, Bronx and Brooklyn, NY Statewide"
+                style={inputStyle}
+              />
+              <p style={fieldHint}>Where your constituents are (a neighborhood, set of areas, or statewide). Helps prioritize locally relevant bills.</p>
             </div>
 
             <div>
@@ -338,7 +359,7 @@ export default function PolicyPage() {
               <div>
                 <span style={{ fontWeight: 700, color: '#1c3557' }}>{districtLabel}</span>
                 <span style={{ marginLeft: 10, color: '#7a8fa6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 380, display: 'inline-block', verticalAlign: 'bottom' }}>
-                  {mission}
+                  {orgDescription}
                 </span>
               </div>
               <button

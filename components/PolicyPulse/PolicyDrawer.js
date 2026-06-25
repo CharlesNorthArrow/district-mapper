@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { pdf } from '@react-pdf/renderer';
-import { loadOrgDescription } from '../../lib/orgContext';
+import { loadOrgProfile } from '../../lib/orgContext';
 import { downloadPdfBlob } from '../../lib/exportHelpers';
 import OrgContextForm from './OrgContextForm';
 import BillFeed from './BillFeed';
@@ -8,6 +8,7 @@ import PolicyPDFDoc from './PolicyPDF';
 
 export default function PolicyDrawer({ layerId, districtName, stateFips, onClose, onSaveScan }) {
   const [orgDescription, setOrgDescription] = useState('');
+  const [constituencyArea, setConstituencyArea] = useState('');
   const [loggedIn, setLoggedIn] = useState(false);
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -29,11 +30,12 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
       } catch {}
       if (cancelled) return;
       setLoggedIn(!!me.loggedIn);
-      const { value } = loadOrgDescription(me);
-      if (value) {
-        setOrgDescription(value);
+      const { orgDescription: desc, constituencyArea: area } = loadOrgProfile(me);
+      setConstituencyArea(area);
+      if (desc) {
+        setOrgDescription(desc);
         setPhase('scanning');
-        runScan(value);
+        runScan(desc, area);
       } else {
         setPhase('form');
       }
@@ -56,7 +58,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
     }
   }
 
-  async function runScan(missionText) {
+  async function runScan(missionText, area = '') {
     setLoading(true);
     setError('');
     setBills([]);
@@ -71,7 +73,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ missionText }),
+          body: JSON.stringify({ missionText, constituencyArea: area }),
         },
         30000,
         'Keyword extraction',
@@ -122,6 +124,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
             districtName,
             level: layerId,
             repNames: [],
+            constituencyArea: area,
           }),
         },
         120000,
@@ -142,10 +145,11 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
     }
   }
 
-  function handleDescriptionSubmit(text) {
-    setOrgDescription(text);
+  function handleDescriptionSubmit({ orgDescription: desc, constituencyArea: area }) {
+    setOrgDescription(desc);
+    setConstituencyArea(area);
     setPhase('scanning');
-    runScan(text);
+    runScan(desc, area);
   }
 
   function handleSave() {
@@ -302,6 +306,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
             <OrgContextForm
               onSubmit={handleDescriptionSubmit}
               initialValue={orgDescription}
+              initialConstituencyArea={constituencyArea}
               loggedIn={loggedIn}
             />
           )}
