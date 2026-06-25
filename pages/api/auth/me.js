@@ -15,7 +15,8 @@ export default async function handler(req, res) {
     const { rows } = await sql`
       SELECT id, person_name, org_name, title, state, email, tier,
              subscription_status, subscription_price_id,
-             current_period_end, cancel_at_period_end
+             current_period_end, cancel_at_period_end,
+             org_description, constituency_area
       FROM orgs
       WHERE clerk_user_id = ${userId}
     `;
@@ -39,6 +40,8 @@ export default async function handler(req, res) {
       subscriptionStatus: org.subscription_status,
       currentPeriodEnd: org.current_period_end,
       cancelAtPeriodEnd: org.cancel_at_period_end,
+      orgDescription: org.org_description || '',
+      constituencyArea: org.constituency_area || '',
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });

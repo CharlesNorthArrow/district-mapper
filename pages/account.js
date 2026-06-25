@@ -9,6 +9,10 @@ export default function AccountPage() {
   const [profile, setProfile] = useState(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState('');
+  const [orgDescription, setOrgDescription] = useState('');
+  const [descSaving, setDescSaving] = useState(false);
+  const [descSavedFlash, setDescSavedFlash] = useState(false);
+  const [descError, setDescError] = useState('');
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -19,9 +23,31 @@ export default function AccountPage() {
       .then((data) => {
         if (!data.orgId) { router.replace('/onboarding'); return; }
         setProfile(data);
+        setOrgDescription(data.orgDescription || '');
       })
       .catch(() => router.replace('/'));
   }, [isLoaded, isSignedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSaveDescription() {
+    setDescSaving(true);
+    setDescError('');
+    try {
+      const res = await fetch('/api/account/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgDescription }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`);
+      setOrgDescription(data.orgDescription);
+      setDescSavedFlash(true);
+      setTimeout(() => setDescSavedFlash(false), 2000);
+    } catch (e) {
+      setDescError(e.message);
+    } finally {
+      setDescSaving(false);
+    }
+  }
 
   async function handleManageBilling() {
     setPortalLoading(true);
@@ -84,6 +110,39 @@ export default function AccountPage() {
               </span>
               {profile.orgName && <span style={orgName}>{profile.orgName}</span>}
             </div>
+          </div>
+
+          <div style={section}>
+            <div style={sectionLabel}>Organization profile</div>
+            <p style={{ ...infoText, fontSize: 13, color: '#555' }}>
+              What your organization does and who it serves — used to find relevant legislation in Policy Pulse.
+            </p>
+            <textarea
+              value={orgDescription}
+              onChange={(e) => { setOrgDescription(e.target.value); setDescError(''); }}
+              placeholder="e.g. We provide free legal services to low-income immigrants facing deportation in New York City."
+              rows={4}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                fontFamily: "'Open Sans', sans-serif", fontSize: 13,
+                padding: '10px 12px', border: '1.5px solid #a9dadc',
+                borderRadius: 6, resize: 'vertical', outline: 'none',
+                color: '#1c3557',
+              }}
+            />
+            {descError && <p style={errorText}>{descError}</p>}
+            <button
+              onClick={handleSaveDescription}
+              disabled={descSaving}
+              style={{
+                ...manageBillingBtn,
+                background: descSavedFlash ? '#1c3557' : '#e63947',
+                opacity: descSaving ? 0.7 : 1,
+                cursor: descSaving ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {descSaving ? 'Saving…' : descSavedFlash ? 'Saved ✓' : 'Save description'}
+            </button>
           </div>
 
           {isPro && (

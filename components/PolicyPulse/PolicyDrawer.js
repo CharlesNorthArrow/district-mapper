@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { pdf } from '@react-pdf/renderer';
-import { getOrgContext } from '../../lib/orgContext';
+import { loadOrgDescription } from '../../lib/orgContext';
 import { downloadPdfBlob } from '../../lib/exportHelpers';
 import OrgContextForm from './OrgContextForm';
 import BillFeed from './BillFeed';
 import PolicyPDFDoc from './PolicyPDF';
 
 export default function PolicyDrawer({ layerId, districtName, stateFips, onClose, onSaveScan }) {
-  const [orgContext, setOrgContextState] = useState('');
+  const [orgDescription, setOrgDescription] = useState('');
+  const [loggedIn, setLoggedIn] = useState(false);
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -19,14 +20,25 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
   const [savedFlash, setSavedFlash] = useState(false);
 
   useEffect(() => {
-    const saved = getOrgContext();
-    if (saved) {
-      setOrgContextState(saved);
-      setPhase('scanning');
-      runScan(saved);
-    } else {
-      setPhase('form');
-    }
+    let cancelled = false;
+    (async () => {
+      let me = { loggedIn: false };
+      try {
+        const r = await fetch('/api/auth/me');
+        if (r.ok) me = await r.json();
+      } catch {}
+      if (cancelled) return;
+      setLoggedIn(!!me.loggedIn);
+      const { value } = loadOrgDescription(me);
+      if (value) {
+        setOrgDescription(value);
+        setPhase('scanning');
+        runScan(value);
+      } else {
+        setPhase('form');
+      }
+    })();
+    return () => { cancelled = true; };
   }, [layerId, districtName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchWithBudget(url, init, budgetMs, stepLabel) {
@@ -130,15 +142,15 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
     }
   }
 
-  function handleMissionSubmit(text) {
-    setOrgContextState(text);
+  function handleDescriptionSubmit(text) {
+    setOrgDescription(text);
     setPhase('scanning');
     runScan(text);
   }
 
   function handleSave() {
     try {
-      onSaveScan?.({ districtName, layerId, mission: orgContext, bills });
+      onSaveScan?.({ districtName, layerId, mission: orgDescription, bills });
     } catch (e) {
       console.error('Save scan failed:', e);
     }
@@ -153,7 +165,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
         <PolicyPDFDoc
           bills={billsToExport}
           districtName={label || districtName}
-          mission={orgContext}
+          mission={orgDescription}
           savedAt={new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
         />
       ).toBlob();
@@ -231,8 +243,8 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
           </div>
         </div>
 
-        {/* Mission context bar */}
-        {phase !== 'form' && orgContext && (
+        {/* Organization description bar */}
+        {phase !== 'form' && orgDescription && (
           <div style={{
             padding: '8px 20px', background: '#f7f9fc',
             borderBottom: '1px solid #eee', fontSize: 12, color: '#555',
@@ -240,7 +252,7 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
             flexShrink: 0,
           }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
-              {orgContext}
+              {orgDescription}
             </span>
             <button
               onClick={() => setPhase('form')}
@@ -286,7 +298,13 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {phase === 'form' && <OrgContextForm onSubmit={handleMissionSubmit} />}
+          {phase === 'form' && (
+            <OrgContextForm
+              onSubmit={handleDescriptionSubmit}
+              initialValue={orgDescription}
+              loggedIn={loggedIn}
+            />
+          )}
           {(phase === 'scanning' || phase === 'results') && (
             <BillFeed
               bills={bills}
