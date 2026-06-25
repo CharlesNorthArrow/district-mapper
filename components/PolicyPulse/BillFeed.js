@@ -101,13 +101,27 @@ export default function BillFeed({ bills, loading, error, scanStep, candidateCou
   }
 
   if (error) {
+    const lower = error.toLowerCase();
+    let hint;
+    if (lower.includes('rate limit') || lower.includes('429')) {
+      hint = 'You hit a rate limit. Try again in a moment.';
+    } else if (
+      lower.includes('legislation database') ||
+      lower.includes('took longer') ||
+      lower.includes('timeout') ||
+      lower.includes('aborted')
+    ) {
+      hint = 'The legislation database was slow to respond. Try the scan again.';
+    } else {
+      hint = 'Something went wrong. Try the scan again.';
+    }
     return (
       <div style={{ padding: 24, fontFamily: "'Open Sans', sans-serif" }}>
         <div style={{ textAlign: 'center', color: '#e63947', fontSize: 13, marginBottom: 12 }}>
           {error}
         </div>
         <p style={{ fontSize: 11, color: '#aaa', textAlign: 'center' }}>
-          Check that ANTHROPIC_API_KEY and OPEN_STATES_API_KEY are set in your environment.
+          {hint}
         </p>
       </div>
     );

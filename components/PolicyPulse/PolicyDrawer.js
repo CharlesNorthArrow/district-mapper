@@ -76,14 +76,17 @@ export default function PolicyDrawer({ layerId, districtName, stateFips, onClose
       const billsRes = await fetchWithBudget(
         `/api/pulse/bills?state=NY&keywords=${encodeURIComponent(keywords.join(','))}`,
         {},
-        30000,
+        35000,
         'Bill search',
       );
       if (!billsRes.ok) {
         const e = await billsRes.json().catch(() => ({}));
         throw new Error(e.error || `Bills API error ${billsRes.status}`);
       }
-      const { bills: allCandidates } = await billsRes.json();
+      const { bills: allCandidates, degraded, message } = await billsRes.json();
+      if (degraded) {
+        throw new Error(message || 'Legislation database unavailable.');
+      }
       if (!allCandidates?.length) {
         setBills([]);
         setPhase('results');
