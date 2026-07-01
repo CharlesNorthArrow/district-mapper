@@ -159,25 +159,32 @@ export default function CustomBoundaryModal({
       }
       setUploadProgress(100);
 
-      // The client-side upload resolves as soon as the PUT completes, but the
-      // server-side onUploadCompleted webhook (which INSERTs the DB row) runs
-      // asynchronously after that. Poll the list until we see the row so we
-      // return the real id — we need it for the geojson stream + delete paths.
-      let saved = null;
-      const deadline = Date.now() + 8000;
-      while (Date.now() < deadline) {
-        try {
-          const listRes = await fetch('/api/auth/custom-boundaries', { cache: 'no-store' });
-          if (listRes.ok) {
-            const listData = await listRes.json();
-            saved = (listData?.boundaries || []).find((b) => b.layer_id === layerId) || null;
-            if (saved) break;
-          }
-        } catch {}
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      if (!saved) {
-        setError('Upload finished but the record didn\'t appear in time. Refresh the page to see it.');
+      // Client-driven finalize. The Vercel Blob upload-completed webhook was
+      // being intercepted at the edge (404 with cache=HIT), so we POST the
+      // metadata to our own endpoint after the PUT succeeds. Server INSERTs
+      // the row and returns it with the DB-assigned id.
+      let saved;
+      try {
+        const finalizeRes = await fetch('/api/auth/finalize-custom-boundary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            blob_url: blob.url,
+            layer_id: layerId,
+            display_name: displayName.trim(),
+            name_field: nameField,
+            feature_count: featureCount,
+            unique_names_count: uniqueNamesCount,
+          }),
+        });
+        if (!finalizeRes.ok) {
+          const errData = await finalizeRes.json().catch(() => ({}));
+          throw new Error(errData.error || `Finalize failed (${finalizeRes.status})`);
+        }
+        const finalizeData = await finalizeRes.json();
+        saved = finalizeData.boundary;
+      } catch (err) {
+        setError(`Upload succeeded but registration failed: ${err.message}`);
         setStep('review');
         return;
       }
