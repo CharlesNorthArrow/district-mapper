@@ -17,6 +17,7 @@ import ProcessingBar from '../components/ProcessingBar';
 import OverflowBanner from '../components/OverflowBanner';
 import UpgradeModal from '../components/UpgradeModal';
 import ExportDialog from '../components/ExportDialog';
+import CustomBoundaryModal from '../components/CustomBoundaryModal';
 import { assignDistricts } from '../lib/pointInDistrict';
 import { LAYER_CONFIG } from '../lib/layerConfig';
 import { suggestGeographies, STATE_BBOX, CITY_BBOX } from '../lib/geoSuggest';
@@ -211,6 +212,9 @@ export default function Home() {
   const [focusedBatchId, setFocusedBatchId] = useState(null); // null = all batches visible
   const [mapReady, setMapReady] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showCustomBoundaryModal, setShowCustomBoundaryModal] = useState(false);
+  const [customBoundaries, setCustomBoundaries] = useState([]);
+  const [customBoundaryMeta, setCustomBoundaryMeta] = useState({});
   const [layerGeojson, setLayerGeojson] = useState({});
   const [loadingLayer, setLoadingLayer] = useState(null);
   const [enrichedPoints, setEnrichedPoints] = useState([]);
@@ -926,6 +930,7 @@ export default function Home() {
           // adopt the merged result as the source of truth across this device.
           syncStarredLayersOnSignIn();
           autoReloadDataset();
+          loadCustomBoundaries();
         } else {
           // Non-logged-in visitor: default to NY + NYC
           loadDefaultState();
@@ -1029,7 +1034,7 @@ export default function Home() {
 
       const result = await assignDistricts(allPoints, layerGeojson, (done, total) => {
         if (!cancelled) setProcessingStatus({ phase: 'Analyzing districts', done, total });
-      });
+      }, customBoundaryMeta);
 
       if (!cancelled) {
         setEnrichedPoints(result);
@@ -1038,7 +1043,7 @@ export default function Home() {
     }, 400);
 
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [dataBatches, layerGeojson]);
+  }, [dataBatches, layerGeojson, customBoundaryMeta]);
 
   // Highlight the matched district polygons on the map whenever lookup results arrive
   useEffect(() => {
@@ -1336,6 +1341,73 @@ export default function Home() {
     setLayerColors((prev) => ({ ...prev, [layerId]: color }));
   }, []);
 
+  async function loadCustomBoundaries() {
+    try {
+      const res = await fetch('/api/auth/custom-boundaries');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = data.boundaries || [];
+      setCustomBoundaries(list);
+      const meta = {};
+      for (const b of list) {
+        meta[b.layer_id] = { nameField: b.name_field, displayName: b.display_name };
+      }
+      setCustomBoundaryMeta(meta);
+    } catch {}
+  }
+
+  const handleCustomBoundaryToggle = useCallback(async (boundary, checked) => {
+    const layerId = boundary.layer_id;
+    if (!checked) {
+      setActiveLayers((prev) => prev.filter((id) => id !== layerId));
+      mapRef.current?.removeBoundaryLayer(layerId);
+      setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+      return;
+    }
+    let geojson = null;
+    try {
+      const res = await fetch(boundary.blob_url);
+      if (!res.ok) throw new Error(`Failed to fetch boundary (${res.status})`);
+      geojson = await res.json();
+    } catch (err) {
+      setPersistMsg({ type: 'error', text: `Could not load "${boundary.display_name}": ${err.message}` });
+      setTimeout(() => setPersistMsg(null), 6000);
+      return;
+    }
+    const color = CUSTOM_COLOR_POOL[customColorIndexRef.current % CUSTOM_COLOR_POOL.length];
+    customColorIndexRef.current += 1;
+    mapRef.current?.addBoundaryLayer(layerId, geojson, color);
+    setActiveLayers((prev) => [...prev.filter((id) => id !== layerId), layerId]);
+    setLayerGeojson((prev) => ({ ...prev, [layerId]: geojson }));
+    setLayerColors((prev) => ({ ...prev, [layerId]: color }));
+  }, []);
+
+  const handleCustomBoundaryDelete = useCallback(async (boundary) => {
+    const layerId = boundary.layer_id;
+    try {
+      const res = await fetch(`/api/auth/custom-boundaries/${boundary.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+    } catch (err) {
+      setPersistMsg({ type: 'error', text: `Could not delete "${boundary.display_name}": ${err.message}` });
+      setTimeout(() => setPersistMsg(null), 6000);
+      return;
+    }
+    setActiveLayers((prev) => prev.filter((id) => id !== layerId));
+    mapRef.current?.removeBoundaryLayer(layerId);
+    setLayerGeojson((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+    setLayerColors((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+    setCustomBoundaries((prev) => prev.filter((b) => b.id !== boundary.id));
+    setCustomBoundaryMeta((prev) => { const n = { ...prev }; delete n[layerId]; return n; });
+  }, []);
+
+  const handleCustomBoundaryAdded = useCallback((row) => {
+    setCustomBoundaries((prev) => [row, ...prev.filter((b) => b.id !== row.id)]);
+    setCustomBoundaryMeta((prev) => ({ ...prev, [row.layer_id]: { nameField: row.name_field, displayName: row.display_name } }));
+    setShowCustomBoundaryModal(false);
+    // Auto-toggle the freshly-uploaded boundary on
+    handleCustomBoundaryToggle(row, true);
+  }, [handleCustomBoundaryToggle]);
+
   function getLayerIdsFromGeos(geos) {
     if (!geos) return [];
     const ids = [];
@@ -1503,7 +1575,10 @@ export default function Home() {
           onLayerToggle={handleLayerToggle}
           onStateLayerToggle={handleStateLayerToggle}
           onCityLayerToggle={handleCityLayerToggle}
-          onCustomLayer={handleCustomLayer}
+          customBoundaries={customBoundaries}
+          onOpenCustomBoundaryModal={() => setShowCustomBoundaryModal(true)}
+          onCustomBoundaryToggle={handleCustomBoundaryToggle}
+          onCustomBoundaryDelete={handleCustomBoundaryDelete}
           onUploadClick={(mode) => {
             if (!isSignedIn) {
               openPreAuth('Create a free account to upload and map your first dataset.');
@@ -1735,6 +1810,16 @@ export default function Home() {
         />
       )}
 
+      {showCustomBoundaryModal && (
+        <CustomBoundaryModal
+          onClose={() => setShowCustomBoundaryModal(false)}
+          onBoundaryAdded={handleCustomBoundaryAdded}
+          tier={tier}
+          existingCount={customBoundaries.length}
+          onOpenUpgrade={() => { setShowCustomBoundaryModal(false); setShowUpgradeModal(true); }}
+        />
+      )}
+
       {showPreAuthModal && (
         <PreAuthModal onClose={closePreAuth} context={preAuthContext || ''} />
       )}
@@ -1785,6 +1870,7 @@ export default function Home() {
           tier={tier}
           onUpgradeClick={() => { setShowExportDialog(false); handleUpgradeClick(); }}
           onClose={() => setShowExportDialog(false)}
+          customBoundaryMeta={customBoundaryMeta}
         />
       )}
 

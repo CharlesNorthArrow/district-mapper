@@ -25,7 +25,6 @@ export default function LayerPanel({
   onLayerToggle,
   onStateLayerToggle,
   onCityLayerToggle,
-  onCustomLayer,
   onUploadClick,
   hasData,
   dataBatches,
@@ -59,8 +58,12 @@ export default function LayerPanel({
   onToggleStar,
   clusteredBatchIds = new Set(),
   onToggleBatchCluster,
+  customBoundaries = [],
+  onOpenCustomBoundaryModal,
+  onCustomBoundaryToggle,
+  onCustomBoundaryDelete,
 }) {
-  const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false });
+  const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false, uploaded: false });
   const setSelectedStates = onSelectedStatesChange;
   const setSelectedCities = onSelectedCitiesChange;
   const [stateSearch, setStateSearch] = useState('');
@@ -180,27 +183,6 @@ export default function LayerPanel({
     const fipsArray = selectedStates.map((s) => STATE_FIPS[s]).filter(Boolean);
     if (fipsArray.length === 0) return;
     onStateLayerToggle(layerId, checked, fipsArray);
-  }
-
-  function handleCustomFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const geojson = JSON.parse(ev.target.result);
-        if (geojson.type !== 'FeatureCollection') {
-          alert('File must be a GeoJSON FeatureCollection.');
-          return;
-        }
-        const layerId = `custom-${file.name.replace(/\W+/g, '-')}`;
-        onCustomLayer(layerId, geojson);
-      } catch {
-        alert('Could not parse file as GeoJSON.');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   }
 
   const filteredStates = US_STATES.filter((s) => {
@@ -717,15 +699,60 @@ export default function LayerPanel({
               </p>
             )}
 
-            <p style={{ ...styles.hint, marginTop: 12 }}>Custom boundary (GeoJSON)</p>
-            <input
-              type="file"
-              accept=".geojson,.json"
-              style={{ fontSize: 12, marginTop: 4 }}
-              onChange={handleCustomFile}
-            />
           </div>
         )}
+
+        {/* Uploaded Geographies section */}
+        <div style={styles.section}>
+          <button style={styles.sectionHeader} onClick={() => toggleSection('uploaded')}>
+            <span>Uploaded Geographies{customBoundaries.length > 0 ? ` (${customBoundaries.length})` : ''}</span>
+            <span>{openSections.uploaded ? '▲' : '▼'}</span>
+          </button>
+          {openSections.uploaded && (
+            <div style={styles.sectionBody}>
+              {authProfile?.loggedIn ? (
+                <>
+                  {customBoundaries.length === 0 && (
+                    <p style={styles.hint}>No custom boundaries yet. Upload a GeoJSON to overlay wards, service areas, catchments, etc.</p>
+                  )}
+                  {customBoundaries.map((b) => {
+                    const isActive = activeLayers.includes(b.layer_id);
+                    const color = layerColors[b.layer_id] || '#7a8fa6';
+                    return (
+                      <div key={b.id} style={customRow}>
+                        <input
+                          type="checkbox"
+                          checked={isActive}
+                          onChange={(e) => onCustomBoundaryToggle?.(b, e.target.checked)}
+                        />
+                        <span style={{ ...customColorDot, background: color }} />
+                        <span style={customName} title={b.display_name}>{b.display_name}</span>
+                        <span style={customMetaLabel}>{Number(b.feature_count).toLocaleString()} features</span>
+                        <button
+                          style={customDeleteBtn}
+                          title="Delete this boundary"
+                          onClick={() => {
+                            if (confirm(`Delete "${b.display_name}"? This can't be undone.`)) {
+                              onCustomBoundaryDelete?.(b);
+                            }
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <button style={addCustomBtn} onClick={() => onOpenCustomBoundaryModal?.()}>
+                    + Add custom boundary
+                  </button>
+                </>
+              ) : (
+                <p style={styles.hint}>Sign in to upload custom boundaries and keep them across sessions.</p>
+              )}
+            </div>
+          )}
+        </div>
+
       </div>
       {/* Can't Find Your Geography */}
       <div style={{ padding: '12px 16px', borderTop: '1px solid #dde3ea', marginTop: 4 }}>
@@ -1066,4 +1093,31 @@ const styles = {
     cursor: 'pointer',
     textAlign: 'center',
   },
+};
+
+const customRow = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  padding: '5px 0', fontSize: 12,
+};
+const customColorDot = {
+  width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+};
+const customName = {
+  flex: 1, minWidth: 0,
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  color: '#1c3557', fontWeight: 600,
+};
+const customMetaLabel = {
+  fontSize: 11, color: '#7a8fa6', flexShrink: 0,
+};
+const customDeleteBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  color: '#aab8c5', fontSize: 12, padding: '0 2px', flexShrink: 0,
+};
+const addCustomBtn = {
+  marginTop: 6, padding: '6px 10px',
+  background: '#f0f4f8', color: 'var(--dark-navy)',
+  border: '1px dashed #c5d0da', borderRadius: 4,
+  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  alignSelf: 'flex-start',
 };

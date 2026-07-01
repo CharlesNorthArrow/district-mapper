@@ -163,6 +163,7 @@ export default function ExportDialog({
   tier,
   onUpgradeClick,
   onClose,
+  customBoundaryMeta = {},
 }) {
   const hasMultipleBatches = dataBatches.length > 1;
   const steps = hasMultipleBatches ? ['format', 'datasets', 'geographies'] : ['format', 'geographies'];
@@ -216,7 +217,7 @@ export default function ExportDialog({
       const geojson = await fetchGeojsonForLayer(id, stateFips);
       if (geojson) geojsonCacheRef.current[id] = geojson;
       const allPoints = dataBatches.flatMap((b) => b.points);
-      const enriched = await assignDistricts(allPoints, geojsonCacheRef.current);
+      const enriched = await assignDistricts(allPoints, geojsonCacheRef.current, undefined, customBoundaryMeta);
       setExportEnrichedPoints(enriched);
     } catch {}
     setLoadingLayer(null);
