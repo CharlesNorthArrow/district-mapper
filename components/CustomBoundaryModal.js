@@ -132,24 +132,32 @@ export default function CustomBoundaryModal({
       const fullPath = `custom-boundaries/${me.orgId}/${path}`;
       const geojsonBlob = new Blob([JSON.stringify(geojson)], { type: 'application/json' });
 
-      const blob = await upload(fullPath, geojsonBlob, {
-        access: 'public',
-        contentType: 'application/json',
-        handleUploadUrl: '/api/auth/custom-boundaries/save-token',
-        clientPayload: JSON.stringify({
-          layerId,
-          displayName: displayName.trim(),
-          nameField,
-          featureCount,
-          uniqueNamesCount,
-        }),
-        onUploadProgress: (evt) => {
-          const pct = evt?.percentage;
-          if (typeof pct === 'number' && !Number.isNaN(pct)) {
-            setUploadProgress(Math.min(100, Math.round(pct)));
-          }
-        },
-      });
+      // Kick off a synthetic progress indicator since we intentionally don't
+      // pass onUploadProgress — the SDK's progress callback appears to interfere
+      // with completion in some cases. Progress here is a best-effort visual.
+      setUploadProgress(0);
+      const progressTimer = setInterval(() => {
+        setUploadProgress((p) => (p < 90 ? p + 3 : p));
+      }, 250);
+
+      let blob;
+      try {
+        blob = await upload(fullPath, geojsonBlob, {
+          access: 'public',
+          contentType: 'application/json',
+          handleUploadUrl: '/api/auth/custom-boundaries/save-token',
+          clientPayload: JSON.stringify({
+            layerId,
+            displayName: displayName.trim(),
+            nameField,
+            featureCount,
+            uniqueNamesCount,
+          }),
+        });
+      } finally {
+        clearInterval(progressTimer);
+      }
+      setUploadProgress(100);
 
       // Fetch the just-saved row so we return the full metadata (id, uploaded_at)
       const listRes = await fetch('/api/auth/custom-boundaries');

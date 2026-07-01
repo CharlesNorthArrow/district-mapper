@@ -13,18 +13,28 @@ import { getCustomBoundaryLimit } from '../../../../lib/tierConfig';
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { userId } = getAuth(req);
-  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const bodyType = req.body?.type;
+  console.log(`[custom-boundaries] save-token invoked type=${bodyType}`);
+
+  // Vercel Blob's upload-completed webhook doesn't carry Clerk cookies —
+  // handleUpload() validates that request via its own signature check.
+  // Only require user auth (and look up the org) on the token-generation call;
+  // the callback flow reads orgId out of tokenPayload instead.
+  const isBlobCallback = bodyType === 'blob.upload-completed';
 
   let orgId;
   let tier;
-  try {
-    const { rows } = await sql`SELECT * FROM orgs WHERE clerk_user_id = ${userId}`;
-    if (!rows.length) return res.status(404).json({ error: 'Org not found' });
-    orgId = rows[0].id;
-    tier = await resolveTier(rows[0]);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
+  if (!isBlobCallback) {
+    const { userId } = getAuth(req);
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const { rows } = await sql`SELECT * FROM orgs WHERE clerk_user_id = ${userId}`;
+      if (!rows.length) return res.status(404).json({ error: 'Org not found' });
+      orgId = rows[0].id;
+      tier = await resolveTier(rows[0]);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   try {
@@ -32,6 +42,7 @@ export default async function handler(req, res) {
       body: req.body,
       request: req,
       onBeforeGenerateToken: async (pathname, clientPayload) => {
+        console.log(`[custom-boundaries] onBeforeGenerateToken pathname=${pathname}`);
         // Path must be under this org's namespace and be a UUID.json
         const expectedPrefix = `custom-boundaries/${orgId}/`;
         if (!pathname.startsWith(expectedPrefix) || !pathname.endsWith('.json')) {
@@ -67,6 +78,7 @@ export default async function handler(req, res) {
         };
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
+        console.log(`[custom-boundaries] onUploadCompleted url=${blob?.url}`);
         try {
           const { orgId, layerId, displayName, nameField, featureCount, uniqueNamesCount } = JSON.parse(tokenPayload);
           await sql`
