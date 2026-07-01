@@ -462,11 +462,13 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                     if (!r) return null;
                     return (
                       <div key={role} style={roleRow}>
-                        <span style={roleLabel}>{ROLE_LABELS[role] || role}</span>
-                        <span style={roleArrow}>→</span>
-                        <span style={roleColName}>{r.col}</span>
-                        <span style={rolePerConf(confidenceTier(r.confidence))}>{r.confidence}%</span>
-                        <span style={roleSample}>"{r.sample}"</span>
+                        <div style={roleRowHeader}>
+                          <span style={roleLabel}>{ROLE_LABELS[role] || role}</span>
+                          <span style={roleArrow}>→</span>
+                          <span style={roleColName}>{r.col}</span>
+                          <span style={rolePerConf(confidenceTier(r.confidence))}>{r.confidence}%</span>
+                        </div>
+                        {r.sample && <span style={roleSample}>"{r.sample}"</span>}
                       </div>
                     );
                   })}
@@ -478,6 +480,14 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                     <span style={{ fontSize: 13 }}>"{proposal.preview}"</span>
                   </div>
                 )}
+              </div>
+
+              <div style={proposalActionRow}>
+                <button style={linkBtn} onClick={() => setEditingMapping((v) => !v)}>
+                  {editingMapping ? 'Hide mapping' : 'Edit mapping'}
+                </button>
+                <span style={linkSeparator}>·</span>
+                <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
               </div>
 
               {editingMapping && (
@@ -511,15 +521,9 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
               )}
               {error && <p style={errorStyle}>{error}</p>}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-                <button style={primaryBtn} onClick={handleConfirm}>
-                  Geocode {rowsToGeocode.toLocaleString()} rows →
-                </button>
-                <button style={linkBtn} onClick={() => setEditingMapping((v) => !v)}>
-                  {editingMapping ? 'Hide mapping' : 'Edit mapping'}
-                </button>
-              </div>
-              <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
+              <button style={primaryBtn} onClick={handleConfirm}>
+                Geocode {rowsToGeocode.toLocaleString()} rows →
+              </button>
             </div>
           );
         })()}
@@ -544,9 +548,11 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
 
                 <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={roleRow}>
-                    <span style={roleLabel}>Address</span>
-                    <span style={roleArrow}>→</span>
-                    <span style={roleColName}>{singleFieldCol}</span>
+                    <div style={roleRowHeader}>
+                      <span style={roleLabel}>Address</span>
+                      <span style={roleArrow}>→</span>
+                      <span style={roleColName}>{singleFieldCol}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -556,6 +562,14 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
                     <span style={{ fontSize: 13 }}>"{previewVal}"</span>
                   </div>
                 )}
+              </div>
+
+              <div style={proposalActionRow}>
+                <button style={linkBtn} onClick={() => setEditingMapping((v) => !v)}>
+                  {editingMapping ? 'Hide mapping' : 'Edit mapping'}
+                </button>
+                <span style={linkSeparator}>·</span>
+                <button style={linkBtn} onClick={() => setMode('manual')}>Use different columns</button>
               </div>
 
               {editingMapping && (
@@ -577,15 +591,9 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
               )}
               {error && <p style={errorStyle}>{error}</p>}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-                <button style={primaryBtn} onClick={handleConfirm}>
-                  Geocode {rowsToGeocode.toLocaleString()} rows →
-                </button>
-                <button style={linkBtn} onClick={() => setEditingMapping((v) => !v)}>
-                  {editingMapping ? 'Hide mapping' : 'Edit mapping'}
-                </button>
-              </div>
-              <button style={linkBtn} onClick={() => setMode('manual')}>Use different columns</button>
+              <button style={primaryBtn} onClick={handleConfirm}>
+                Geocode {rowsToGeocode.toLocaleString()} rows →
+              </button>
             </div>
           );
         })()}
@@ -893,16 +901,17 @@ function confidenceBadge(tier) {
   };
 }
 const roleRow = {
-  display: 'grid',
-  gridTemplateColumns: '110px 14px 1fr 44px minmax(0, 1fr)',
-  alignItems: 'center', gap: 6,
-  fontSize: 12,
+  display: 'flex', flexDirection: 'column', gap: 1,
+  fontSize: 12, padding: '2px 0',
 };
-const roleLabel = { color: '#4a5568', fontWeight: 600 };
-const roleArrow = { color: '#7a8fa6', textAlign: 'center' };
+const roleRowHeader = {
+  display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 6,
+};
+const roleLabel = { color: '#4a5568', fontWeight: 600, minWidth: 110, flexShrink: 0 };
+const roleArrow = { color: '#7a8fa6' };
 const roleColName = {
   color: '#1c3557', fontWeight: 600,
-  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  wordBreak: 'break-word', flex: 1, minWidth: 0,
 };
 function rolePerConf(tier) {
   const c = TIER_COLORS[tier];
@@ -910,12 +919,12 @@ function rolePerConf(tier) {
     fontSize: 10, fontWeight: 700, color: c.text,
     background: c.badgeBg, borderRadius: 8,
     padding: '1px 6px', textAlign: 'center',
-    minWidth: 32,
+    minWidth: 32, flexShrink: 0,
   };
 }
 const roleSample = {
   color: '#7a8fa6', fontStyle: 'italic',
-  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  paddingLeft: 116, wordBreak: 'break-word',
 };
 const editPanel = {
   marginTop: 4,
@@ -925,3 +934,8 @@ const editPanel = {
   borderRadius: 5,
   display: 'flex', flexDirection: 'column', gap: 4,
 };
+const proposalActionRow = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  marginTop: 6, marginBottom: 2,
+};
+const linkSeparator = { color: '#c5d0da', fontSize: 12 };
