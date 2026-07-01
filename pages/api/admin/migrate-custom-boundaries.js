@@ -19,10 +19,30 @@ export default async function handler(req, res) {
   }
 
   try {
-    await sql`
+    // Look up the actual data type of orgs.id so org_id here matches it.
+    // The existing schema was set up externally and the column type isn't
+    // documented anywhere in this repo — infer it and mirror it here.
+    const { rows: typeRows } = await sql`
+      SELECT data_type FROM information_schema.columns
+      WHERE table_name = 'orgs' AND column_name = 'id'
+    `;
+    if (!typeRows.length) {
+      return res.status(500).json({ error: "Could not resolve orgs.id data type" });
+    }
+    const orgIdType = String(typeRows[0].data_type).toUpperCase();
+    // Map information_schema names back to CREATE TABLE column types
+    const orgIdSql = orgIdType.includes('CHAR') || orgIdType === 'TEXT'
+      ? 'TEXT'
+      : orgIdType === 'UUID'
+      ? 'UUID'
+      : orgIdType.includes('INT')
+      ? orgIdType.replace(/\s+/g, ' ')  // BIGINT / INTEGER / SMALLINT
+      : orgIdType; // fall through to whatever information_schema reported
+
+    await sql.query(`
       CREATE TABLE IF NOT EXISTS custom_boundaries (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        org_id BIGINT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+        org_id ${orgIdSql} NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
         layer_id TEXT NOT NULL,
         display_name TEXT NOT NULL,
         name_field TEXT NOT NULL,
@@ -32,9 +52,9 @@ export default async function handler(req, res) {
         uploaded_at TIMESTAMPTZ DEFAULT now(),
         UNIQUE(org_id, layer_id)
       )
-    `;
+    `);
     await sql`CREATE INDEX IF NOT EXISTS idx_custom_boundaries_org ON custom_boundaries(org_id)`;
-    return res.status(200).json({ ok: true, table: 'custom_boundaries' });
+    return res.status(200).json({ ok: true, table: 'custom_boundaries', orgIdType: orgIdSql });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
