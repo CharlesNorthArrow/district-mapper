@@ -1,14 +1,17 @@
-// POST /api/auth/custom-boundaries/save-token
+// POST /api/auth/save-custom-boundary-token
 // Signs a short-lived client token for direct browser → Vercel Blob upload
 // of a custom boundary GeoJSON, and inserts the metadata row when the upload
-// completes. Same pattern as save-dataset-token: the GeoJSON never flows
-// through this route, only the token exchange and post-upload callback do.
-// Enforces the per-tier custom-boundary cap in onBeforeGenerateToken.
+// completes. Same pattern as save-dataset-token.
+//
+// Deliberately kept OUT of the /custom-boundaries/ folder because Vercel Blob's
+// upload-completed webhook was hitting Next.js's dynamic [id] route neighbour
+// and returning 404 instead of running this handler. Sitting at the flat
+// /api/auth/ level avoids that conflict entirely.
 import { handleUpload } from '@vercel/blob/client';
 import { getAuth } from '@clerk/nextjs/server';
 import { sql } from '@vercel/postgres';
-import { resolveTier } from '../../../../lib/resolveTier';
-import { getCustomBoundaryLimit } from '../../../../lib/tierConfig';
+import { resolveTier } from '../../../lib/resolveTier';
+import { getCustomBoundaryLimit } from '../../../lib/tierConfig';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -43,13 +46,11 @@ export default async function handler(req, res) {
       request: req,
       onBeforeGenerateToken: async (pathname, clientPayload) => {
         console.log(`[custom-boundaries] onBeforeGenerateToken pathname=${pathname}`);
-        // Path must be under this org's namespace and be a UUID.json
         const expectedPrefix = `custom-boundaries/${orgId}/`;
         if (!pathname.startsWith(expectedPrefix) || !pathname.endsWith('.json')) {
           throw new Error('Invalid upload path for this user');
         }
 
-        // Enforce the tier cap by counting existing rows
         const limit = getCustomBoundaryLimit(tier);
         if (limit !== Infinity) {
           const { rows: countRows } = await sql`
@@ -97,7 +98,7 @@ export default async function handler(req, res) {
           `;
         } catch (err) {
           console.error(`[custom-boundaries] onUploadCompleted failed: ${err.message}`, err);
-          throw err; // Re-throw so Vercel Blob retries or surfaces the failure
+          throw err;
         }
       },
     });
