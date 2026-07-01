@@ -22,6 +22,12 @@ const GEOCODE_JOKES = [
 const ROLE_ENABLED_DEFAULT = { street: true, city: true, county: false, state: true, zip: true };
 const ROLE_LABELS = { street: 'Street / Address', city: 'City', county: 'County', state: 'State', zip: 'ZIP / Postal' };
 
+function confidenceTier(pct) {
+  if (pct >= 85) return 'high';
+  if (pct >= 60) return 'medium';
+  return 'low';
+}
+
 export default function UploadModal({ onClose, onUploadComplete, tier = 'free', onOpenUpgrade }) {
   const [step, setStep] = useState('idle');       // idle | review | geocoding | complete
   const [rows, setRows] = useState([]);
@@ -32,13 +38,18 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
   const [lngCol, setLngCol] = useState('');
   const [addrParts, setAddrParts] = useState([]);  // [{role, col, enabled}]
 
-  // 'coords' | 'address' | 'manual'
+  // 'coords' | 'address' | 'singleField' | 'manual'
   const [mode, setMode] = useState(null);
   // manual sub-mode: 'coords' | 'single' | 'parts'
   const [manualMode, setManualMode] = useState('single');
   const [manualAddrCol, setManualAddrCol] = useState('');
   const [manualLatCol, setManualLatCol] = useState('');
   const [manualLngCol, setManualLngCol] = useState('');
+
+  // Smart audit proposal ({ mode, confidence, roles?, singleFieldCol?, preview })
+  const [proposal, setProposal] = useState(null);
+  const [editingMapping, setEditingMapping] = useState(false);
+  const [singleFieldCol, setSingleFieldCol] = useState('');
 
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
@@ -101,12 +112,19 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
     setRows(data);
     setHeaders(cols);
     setError('');
+    setEditingMapping(false);
+
+    const p = result.addressResult.proposal;
+    setProposal(p);
 
     if (result.coordResult.confidence !== null) {
       setMode('coords');
       setLatCol(result.coordResult.latCol);
       setLngCol(result.coordResult.lngCol);
-    } else if (result.addressResult.detected.length > 0) {
+    } else if (p && p.mode === 'singleField') {
+      setMode('singleField');
+      setSingleFieldCol(p.singleFieldCol);
+    } else if (p && p.mode === 'address') {
       setMode('address');
       setAddrParts(
         result.addressResult.detected.map((d) => ({
@@ -122,6 +140,13 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
   }
 
   function switchToAddressMode() {
+    setEditingMapping(false);
+    const p = audit?.addressResult?.proposal;
+    if (p?.mode === 'singleField') {
+      setSingleFieldCol(p.singleFieldCol);
+      setMode('singleField');
+      return;
+    }
     if (audit?.addressResult.detected.length > 0) {
       setAddrParts(
         audit.addressResult.detected.map((d) => ({
@@ -189,6 +214,12 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
       addresses = rows.map((row) =>
         enabledCols.map((col) => String(row[col] || '').trim()).filter(Boolean).join(', ')
       );
+    } else if (mode === 'singleField') {
+      if (!singleFieldCol) {
+        setError('Select an address column.');
+        return;
+      }
+      addresses = rows.map((row) => String(row[singleFieldCol] || ''));
     } else if (mode === 'manual') {
       if (manualMode === 'coords') {
         if (!manualLatCol || !manualLngCol) {
@@ -412,28 +443,63 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
         {step === 'review' && mode === 'address' && (() => {
           const limit = getRowLimit(false, tier);
           const willSlice = limit < Infinity && rows.length > limit;
+          const rowsToGeocode = willSlice ? limit : rows.length;
+          const conf = proposal?.confidence ?? 0;
+          const tier_ = confidenceTier(conf);
           return (
             <div style={body}>
-              <p style={hint}>No coordinate columns found. Build addresses from these columns:</p>
+              <div style={proposalCard(tier_)}>
+                <div style={proposalHeader}>
+                  <span style={proposalTitle}>
+                    {tier_ === 'high' ? '✓' : tier_ === 'medium' ? '~' : '⚠'} Detected address columns
+                  </span>
+                  <span style={confidenceBadge(tier_)}>{conf}%</span>
+                </div>
 
-              <div style={{ marginTop: 4 }}>
-                {addrParts.map((part) => (
-                  <label key={part.col} style={addrRow}>
-                    <input
-                      type="checkbox"
-                      checked={part.enabled}
-                      onChange={(e) => toggleAddrPart(part.col, e.target.checked)}
-                    />
-                    <span style={{ minWidth: 130, fontSize: 13 }}>{ROLE_LABELS[part.role] || part.role}</span>
-                    <span style={sampleStyle}>"{part.sample}"</span>
-                  </label>
-                ))}
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {['street', 'city', 'state', 'zip', 'county'].map((role) => {
+                    const r = proposal?.roles?.[role];
+                    if (!r) return null;
+                    return (
+                      <div key={role} style={roleRow}>
+                        <span style={roleLabel}>{ROLE_LABELS[role] || role}</span>
+                        <span style={roleArrow}>→</span>
+                        <span style={roleColName}>{r.col}</span>
+                        <span style={rolePerConf(confidenceTier(r.confidence))}>{r.confidence}%</span>
+                        <span style={roleSample}>"{r.sample}"</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {proposal?.preview && (
+                  <div style={{ ...previewBox, marginTop: 8 }}>
+                    <span style={{ fontSize: 11, color: '#7a8fa6', marginBottom: 2 }}>Preview (first row)</span>
+                    <span style={{ fontSize: 13 }}>"{proposal.preview}"</span>
+                  </div>
+                )}
               </div>
 
-              {buildPreview() && (
-                <div style={previewBox}>
-                  <span style={{ fontSize: 11, color: '#7a8fa6', marginBottom: 2 }}>Preview (first row)</span>
-                  <span style={{ fontSize: 13 }}>"{buildPreview()}"</span>
+              {editingMapping && (
+                <div style={editPanel}>
+                  <p style={{ ...hint, marginBottom: 4 }}>Toggle which columns to include:</p>
+                  {addrParts.map((part) => (
+                    <label key={part.col} style={addrRow}>
+                      <input
+                        type="checkbox"
+                        checked={part.enabled}
+                        onChange={(e) => toggleAddrPart(part.col, e.target.checked)}
+                      />
+                      <span style={{ minWidth: 130, fontSize: 13 }}>{ROLE_LABELS[part.role] || part.role}</span>
+                      <span style={sampleStyle}>"{part.sample}"</span>
+                    </label>
+                  ))}
+                  {buildPreview() && (
+                    <div style={{ ...previewBox, marginTop: 6 }}>
+                      <span style={{ fontSize: 11, color: '#7a8fa6', marginBottom: 2 }}>Preview</span>
+                      <span style={{ fontSize: 13 }}>"{buildPreview()}"</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -446,9 +512,80 @@ export default function UploadModal({ onClose, onUploadComplete, tier = 'free', 
               {error && <p style={errorStyle}>{error}</p>}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-                <button style={primaryBtn} onClick={handleConfirm}>Geocode &amp; Map</button>
+                <button style={primaryBtn} onClick={handleConfirm}>
+                  Geocode {rowsToGeocode.toLocaleString()} rows →
+                </button>
+                <button style={linkBtn} onClick={() => setEditingMapping((v) => !v)}>
+                  {editingMapping ? 'Hide mapping' : 'Edit mapping'}
+                </button>
               </div>
               <button style={linkBtn} onClick={() => setMode('manual')}>None of these look right</button>
+            </div>
+          );
+        })()}
+
+        {/* ── REVIEW: singleField ── */}
+        {step === 'review' && mode === 'singleField' && (() => {
+          const limit = getRowLimit(false, tier);
+          const willSlice = limit < Infinity && rows.length > limit;
+          const rowsToGeocode = willSlice ? limit : rows.length;
+          const conf = proposal?.confidence ?? 0;
+          const tier_ = confidenceTier(conf);
+          const previewVal = proposal?.preview || (rows[0] ? String(rows[0][singleFieldCol] || '') : '');
+          return (
+            <div style={body}>
+              <div style={proposalCard(tier_)}>
+                <div style={proposalHeader}>
+                  <span style={proposalTitle}>
+                    {tier_ === 'high' ? '✓' : tier_ === 'medium' ? '~' : '⚠'} Detected single-field address
+                  </span>
+                  <span style={confidenceBadge(tier_)}>{conf}%</span>
+                </div>
+
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={roleRow}>
+                    <span style={roleLabel}>Address</span>
+                    <span style={roleArrow}>→</span>
+                    <span style={roleColName}>{singleFieldCol}</span>
+                  </div>
+                </div>
+
+                {previewVal && (
+                  <div style={{ ...previewBox, marginTop: 8 }}>
+                    <span style={{ fontSize: 11, color: '#7a8fa6', marginBottom: 2 }}>Preview (first row)</span>
+                    <span style={{ fontSize: 13 }}>"{previewVal}"</span>
+                  </div>
+                )}
+              </div>
+
+              {editingMapping && (
+                <div style={editPanel}>
+                  <div style={fieldGrid}>
+                    <span style={fieldLabel}>Address column</span>
+                    <select style={sel} value={singleFieldCol} onChange={(e) => setSingleFieldCol(e.target.value)}>
+                      {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <p style={{ ...hint, marginTop: 8 }}>
+                {rows.length.toLocaleString()} rows · ~{estSeconds}s to geocode{willSlice && ` · First ${limit.toLocaleString()} will be geocoded`}
+              </p>
+              {willSlice && (
+                <p style={limitWarning}>{getLimitWarning(rows.length - limit, limit)}</p>
+              )}
+              {error && <p style={errorStyle}>{error}</p>}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+                <button style={primaryBtn} onClick={handleConfirm}>
+                  Geocode {rowsToGeocode.toLocaleString()} rows →
+                </button>
+                <button style={linkBtn} onClick={() => setEditingMapping((v) => !v)}>
+                  {editingMapping ? 'Hide mapping' : 'Edit mapping'}
+                </button>
+              </div>
+              <button style={linkBtn} onClick={() => setMode('manual')}>Use different columns</button>
             </div>
           );
         })()}
@@ -722,4 +859,69 @@ const chooseFileBtn = {
   background: 'var(--dark-navy)', color: '#fff',
   border: 'none', borderRadius: 5,
   fontSize: 13, fontWeight: 600, cursor: 'pointer',
+};
+
+const TIER_COLORS = {
+  high:   { border: '#bbf7d0', bg: '#f0fdf4', text: '#166534', badgeBg: '#dcfce7' },
+  medium: { border: '#fcd34d', bg: '#fffbeb', text: '#92400e', badgeBg: '#fef3c7' },
+  low:    { border: '#fca5a5', bg: '#fef2f2', text: '#b91c1c', badgeBg: '#fee2e2' },
+};
+
+function proposalCard(tier) {
+  const c = TIER_COLORS[tier];
+  return {
+    background: c.bg,
+    border: `1px solid ${c.border}`,
+    borderRadius: 5,
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+  };
+}
+const proposalHeader = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+};
+const proposalTitle = {
+  fontSize: 13, fontWeight: 700, color: '#1c3557',
+};
+function confidenceBadge(tier) {
+  const c = TIER_COLORS[tier];
+  return {
+    fontSize: 12, fontWeight: 700, color: c.text,
+    background: c.badgeBg, borderRadius: 12,
+    padding: '2px 10px',
+  };
+}
+const roleRow = {
+  display: 'grid',
+  gridTemplateColumns: '110px 14px 1fr 44px minmax(0, 1fr)',
+  alignItems: 'center', gap: 6,
+  fontSize: 12,
+};
+const roleLabel = { color: '#4a5568', fontWeight: 600 };
+const roleArrow = { color: '#7a8fa6', textAlign: 'center' };
+const roleColName = {
+  color: '#1c3557', fontWeight: 600,
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+};
+function rolePerConf(tier) {
+  const c = TIER_COLORS[tier];
+  return {
+    fontSize: 10, fontWeight: 700, color: c.text,
+    background: c.badgeBg, borderRadius: 8,
+    padding: '1px 6px', textAlign: 'center',
+    minWidth: 32,
+  };
+}
+const roleSample = {
+  color: '#7a8fa6', fontStyle: 'italic',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+};
+const editPanel = {
+  marginTop: 4,
+  padding: '10px 12px',
+  background: '#f8fafc',
+  border: '1px solid #dde3ea',
+  borderRadius: 5,
+  display: 'flex', flexDirection: 'column', gap: 4,
 };
