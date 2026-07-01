@@ -159,18 +159,28 @@ export default function CustomBoundaryModal({
       }
       setUploadProgress(100);
 
-      // Fetch the just-saved row so we return the full metadata (id, uploaded_at)
-      const listRes = await fetch('/api/auth/custom-boundaries');
-      const listData = await listRes.json();
-      const saved = (listData?.boundaries || []).find((b) => b.layer_id === layerId) || {
-        layer_id: layerId,
-        display_name: displayName.trim(),
-        name_field: nameField,
-        blob_url: blob.url,
-        feature_count: featureCount,
-        unique_names_count: uniqueNamesCount,
-        uploaded_at: new Date().toISOString(),
-      };
+      // The client-side upload resolves as soon as the PUT completes, but the
+      // server-side onUploadCompleted webhook (which INSERTs the DB row) runs
+      // asynchronously after that. Poll the list until we see the row so we
+      // return the real id — we need it for the geojson stream + delete paths.
+      let saved = null;
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline) {
+        try {
+          const listRes = await fetch('/api/auth/custom-boundaries', { cache: 'no-store' });
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            saved = (listData?.boundaries || []).find((b) => b.layer_id === layerId) || null;
+            if (saved) break;
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!saved) {
+        setError('Upload finished but the record didn\'t appear in time. Refresh the page to see it.');
+        setStep('review');
+        return;
+      }
 
       setStep('done');
       onBoundaryAdded(saved);
