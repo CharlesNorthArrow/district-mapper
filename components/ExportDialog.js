@@ -65,7 +65,7 @@ function pdfLookupRep(districtName, officials) {
 
 const PARTY_LABEL = { D: 'Dem', R: 'Rep', I: 'Ind' };
 
-function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, datasetLabel, officials }) {
+function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, datasetLabel, officials, customBoundariesById = {} }) {
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   function getDisplayName(layerId) {
@@ -75,7 +75,9 @@ function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, data
       const city = CITY_COUNCIL_REGISTRY[slug];
       return city?.displayName || (city ? `${city.name} Council Districts` : `Council Districts (${slug})`);
     }
-    if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
+    if (layerId.startsWith('custom-')) {
+      return customBoundariesById[layerId]?.display_name || `Custom: ${layerId.replace('custom-', '')}`;
+    }
     return layerId;
   }
 
@@ -136,14 +138,16 @@ function PDFReport({ layerSummary, activeLayers, pointCount, numericFields, data
   );
 }
 
-function getLayerDisplayName(layerId) {
+function getLayerDisplayName(layerId, customBoundariesById = {}) {
   if (LAYER_CONFIG[layerId]) return LAYER_CONFIG[layerId].displayName;
   if (layerId.startsWith('council-')) {
     const slug = layerId.replace('council-', '');
     const city = CITY_COUNCIL_REGISTRY[slug];
     return city?.displayName || (city ? `${city.name} Council Districts` : `Council Districts (${slug})`);
   }
-  if (layerId.startsWith('custom-')) return `Custom: ${layerId.replace('custom-', '')}`;
+  if (layerId.startsWith('custom-')) {
+    return customBoundariesById[layerId]?.display_name || `Custom: ${layerId.replace('custom-', '')}`;
+  }
   return layerId;
 }
 
@@ -164,7 +168,15 @@ export default function ExportDialog({
   onUpgradeClick,
   onClose,
   customBoundaryMeta = {},
+  customBoundaries = [],
 }) {
+  // Map layer_id → boundary metadata row for resolving the private-blob stream
+  // endpoint and the real display name when a custom boundary is being exported.
+  const customBoundariesById = useMemo(() => {
+    const m = {};
+    for (const b of customBoundaries) m[b.layer_id] = b;
+    return m;
+  }, [customBoundaries]);
   const hasMultipleBatches = dataBatches.length > 1;
   const steps = hasMultipleBatches ? ['format', 'datasets', 'geographies'] : ['format', 'geographies'];
 
@@ -214,7 +226,16 @@ export default function ExportDialog({
     if (geojsonCacheRef.current[id]) return;
     setLoadingLayer(id);
     try {
-      const geojson = await fetchGeojsonForLayer(id, stateFips);
+      let geojson;
+      if (id.startsWith('custom-')) {
+        const boundary = customBoundariesById[id];
+        if (boundary) {
+          const res = await fetch(`/api/auth/custom-boundaries/geojson/${boundary.id}`);
+          if (res.ok) geojson = await res.json();
+        }
+      } else {
+        geojson = await fetchGeojsonForLayer(id, stateFips);
+      }
       if (geojson) geojsonCacheRef.current[id] = geojson;
       const allPoints = dataBatches.flatMap((b) => b.points);
       const enriched = await assignDistricts(allPoints, geojsonCacheRef.current, undefined, customBoundaryMeta);
@@ -285,6 +306,7 @@ export default function ExportDialog({
           numericFields={numericFields}
           datasetLabel={label}
           officials={officials}
+          customBoundariesById={customBoundariesById}
         />
       ).toBlob();
       const filename = label
@@ -423,7 +445,7 @@ export default function ExportDialog({
                               disabled={isLoading}
                               style={{ marginRight: 6, accentColor: '#1c3557', flexShrink: 0 }}
                             />
-                            <span style={geoCheckLabel}>{getLayerDisplayName(layerId)}</span>
+                            <span style={geoCheckLabel}>{getLayerDisplayName(layerId, customBoundariesById)}</span>
                           </label>
                         ))}
                       </div>
@@ -435,7 +457,7 @@ export default function ExportDialog({
               {isLoading && (
                 <div style={progressWrap}>
                   <div style={spinner} />
-                  <div style={progressMsg}>Matching {getLayerDisplayName(loadingLayer)}…</div>
+                  <div style={progressMsg}>Matching {getLayerDisplayName(loadingLayer, customBoundariesById)}…</div>
                 </div>
               )}
             </div>

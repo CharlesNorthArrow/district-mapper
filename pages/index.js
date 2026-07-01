@@ -584,6 +584,9 @@ export default function Home() {
       await handleStateLayerToggle(newLayerId, true, fipsArray);
     } else if (type === 'city') {
       await handleCityLayerToggle(citySlug, true);
+    } else if (type === 'custom') {
+      const boundary = customBoundaries.find((b) => b.layer_id === newLayerId);
+      if (boundary) await handleCustomBoundaryToggle(boundary, true);
     }
     setActiveChoroLayer(newLayerId);
   }
@@ -608,8 +611,9 @@ export default function Home() {
         ids.push(`council-${extraSlug}`);
       }
     }
+    for (const b of customBoundaries) ids.push(b.layer_id);
     return ids;
-  }, [selectedStates, selectedCities]);
+  }, [selectedStates, selectedCities, customBoundaries]);
 
   // All layer IDs that have at least one matched point — used by ExportDialog geographies step
   const matchedLayerIds = useMemo(() => {
@@ -632,6 +636,9 @@ export default function Home() {
       const slug = layerId.slice('council-'.length);
       const city = CITY_COUNCIL_REGISTRY[slug];
       return { districtField: city?.districtField || 'NAME', stateField: null };
+    }
+    if (customBoundaryMeta[layerId]?.nameField) {
+      return { districtField: customBoundaryMeta[layerId].nameField, stateField: null };
     }
     return { districtField: 'NAME', stateField: null };
   }
@@ -1873,6 +1880,7 @@ export default function Home() {
           onUpgradeClick={() => { setShowExportDialog(false); handleUpgradeClick(); }}
           onClose={() => setShowExportDialog(false)}
           customBoundaryMeta={customBoundaryMeta}
+          customBoundaries={customBoundaries}
         />
       )}
 

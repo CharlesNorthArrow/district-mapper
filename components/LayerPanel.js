@@ -200,7 +200,7 @@ export default function LayerPanel({
     ))
     .filter(([, c]) => c.name.toLowerCase().includes(citySearch.toLowerCase()));
 
-  function LayerRow({ layerId, label, onToggle, type, fipsArray, citySlug }) {
+  function LayerRow({ layerId, label, onToggle, type, fipsArray, citySlug, trailing = null }) {
     const isActive = activeLayers.includes(layerId);
     const isLoading = loadingLayer === layerId;
     const locked = isLayerLocked(layerId, tier);
@@ -208,7 +208,10 @@ export default function LayerPanel({
     const count = layerCounts[layerId];
     const canAnalyze = hasData && isActive && !locked;
     const layerColor = layerColors[layerId];
-    const showBorder = isActive && !!layerColor;
+    const isCustom = type === 'custom';
+    // Custom boundaries don't paint a coloured left border in the sidebar —
+    // they're user-uploaded and should read as plain layers.
+    const showBorder = isActive && !!layerColor && !isCustom;
     const isStarred = starredLayers.has(layerId);
     return (
       <div style={{ ...styles.layerRow, opacity: locked ? 0.5 : 1, borderLeft: showBorder ? `3px solid ${layerColor}` : '3px solid transparent', paddingLeft: showBorder ? 5 : 8 }}>
@@ -245,15 +248,17 @@ export default function LayerPanel({
           </span>
         )}
         {isLoading && !locked && <span style={styles.spinner}>↻</span>}
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleStar?.(layerId); }}
-          title={isStarred ? 'Unstar — remove from preloaded geographies' : 'Star to pin to top and preload'}
-          style={{ ...styles.starBtn, color: isStarred ? '#f59e0b' : '#c5d0da' }}
-          aria-pressed={isStarred}
-        >
-          {isStarred ? '★' : '☆'}
-        </button>
+        {isCustom ? trailing : (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleStar?.(layerId); }}
+            title={isStarred ? 'Unstar — remove from preloaded geographies' : 'Star to pin to top and preload'}
+            style={{ ...styles.starBtn, color: isStarred ? '#f59e0b' : '#c5d0da' }}
+            aria-pressed={isStarred}
+          >
+            {isStarred ? '★' : '☆'}
+          </button>
+        )}
       </div>
     );
   }
@@ -715,23 +720,20 @@ export default function LayerPanel({
                   {customBoundaries.length === 0 && (
                     <p style={styles.hint}>No custom boundaries yet. Upload a GeoJSON to overlay wards, service areas, catchments, etc.</p>
                   )}
-                  {customBoundaries.map((b) => {
-                    const isActive = activeLayers.includes(b.layer_id);
-                    const color = layerColors[b.layer_id] || '#7a8fa6';
-                    return (
-                      <div key={b.id} style={customRow}>
-                        <input
-                          type="checkbox"
-                          checked={isActive}
-                          onChange={(e) => onCustomBoundaryToggle?.(b, e.target.checked)}
-                        />
-                        <span style={{ ...customColorDot, background: color }} />
-                        <span style={customName} title={b.display_name}>{b.display_name}</span>
-                        <span style={customMetaLabel}>{Number(b.feature_count).toLocaleString()} features</span>
+                  {customBoundaries.map((b) => (
+                    <LayerRow
+                      key={b.id}
+                      layerId={b.layer_id}
+                      label={b.display_name}
+                      type="custom"
+                      onToggle={(_, checked) => onCustomBoundaryToggle?.(b, checked)}
+                      trailing={
                         <button
+                          type="button"
                           style={customDeleteBtn}
                           title="Delete this boundary"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if (confirm(`Delete "${b.display_name}"? This can't be undone.`)) {
                               onCustomBoundaryDelete?.(b);
                             }
@@ -739,9 +741,9 @@ export default function LayerPanel({
                         >
                           ✕
                         </button>
-                      </div>
-                    );
-                  })}
+                      }
+                    />
+                  ))}
                   <button style={addCustomBtn} onClick={() => onOpenCustomBoundaryModal?.()}>
                     + Add custom boundary
                   </button>
@@ -1095,24 +1097,9 @@ const styles = {
   },
 };
 
-const customRow = {
-  display: 'flex', alignItems: 'center', gap: 6,
-  padding: '5px 0', fontSize: 12,
-};
-const customColorDot = {
-  width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-};
-const customName = {
-  flex: 1, minWidth: 0,
-  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  color: '#1c3557', fontWeight: 600,
-};
-const customMetaLabel = {
-  fontSize: 11, color: '#7a8fa6', flexShrink: 0,
-};
 const customDeleteBtn = {
   background: 'none', border: 'none', cursor: 'pointer',
-  color: '#aab8c5', fontSize: 12, padding: '0 2px', flexShrink: 0,
+  color: '#aab8c5', fontSize: 14, padding: '0 4px', flexShrink: 0,
 };
 const addCustomBtn = {
   marginTop: 6, padding: '6px 10px',
