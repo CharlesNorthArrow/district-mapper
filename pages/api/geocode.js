@@ -7,27 +7,44 @@ import { getAuth } from '@clerk/nextjs/server';
 
 const BATCH_SIZE = 50;
 
-async function geocodeBatch(addresses) {
-  const results = [];
-  for (const address of addresses) {
-    const encoded = encodeURIComponent(address);
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${process.env.MAPBOX_TOKEN}&limit=1&country=US`;
+const MAPBOX_QUERY_MAX_LEN = 256;
+
+async function geocodeOne(address) {
+  const trimmed = String(address || '').trim();
+  if (!trimmed) {
+    return { address, lat: null, lng: null, confidence: 0 };
+  }
+  const query = trimmed.length > MAPBOX_QUERY_MAX_LEN ? trimmed.slice(0, MAPBOX_QUERY_MAX_LEN) : trimmed;
+  const encoded = encodeURIComponent(query);
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${process.env.MAPBOX_TOKEN}&limit=1&country=US`;
+  try {
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Mapbox API error ${res.status}: ${res.statusText}`);
+      const body = await res.text().catch(() => '');
+      console.warn(`[geocode] Mapbox ${res.status} for "${query}": ${body.slice(0, 200)}`);
+      return { address, lat: null, lng: null, confidence: 0 };
     }
     const data = await res.json();
     const feature = data.features?.[0];
     if (feature) {
-      results.push({
+      return {
         address,
         lng: feature.center[0],
         lat: feature.center[1],
         confidence: feature.relevance,
-      });
-    } else {
-      results.push({ address, lat: null, lng: null, confidence: 0 });
+      };
     }
+    return { address, lat: null, lng: null, confidence: 0 };
+  } catch (err) {
+    console.warn(`[geocode] fetch failed for "${query}": ${err.message}`);
+    return { address, lat: null, lng: null, confidence: 0 };
+  }
+}
+
+async function geocodeBatch(addresses) {
+  const results = [];
+  for (const address of addresses) {
+    results.push(await geocodeOne(address));
   }
   return results;
 }
