@@ -1366,7 +1366,9 @@ export default function Home() {
     }
     let geojson = null;
     try {
-      const res = await fetch(boundary.blob_url);
+      // Boundaries are stored as private blobs — fetch through the auth-gated
+      // stream endpoint rather than hitting blob_url directly.
+      const res = await fetch(`/api/auth/custom-boundaries/geojson/${boundary.id}`);
       if (!res.ok) throw new Error(`Failed to fetch boundary (${res.status})`);
       geojson = await res.json();
     } catch (err) {

@@ -143,7 +143,7 @@ export default function CustomBoundaryModal({
       let blob;
       try {
         blob = await upload(fullPath, geojsonBlob, {
-          access: 'public',
+          access: 'private',
           contentType: 'application/json',
           handleUploadUrl: '/api/auth/custom-boundaries/save-token',
           clientPayload: JSON.stringify({
