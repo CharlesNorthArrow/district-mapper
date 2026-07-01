@@ -134,6 +134,7 @@ export default function CustomBoundaryModal({
 
       const blob = await upload(fullPath, geojsonBlob, {
         access: 'public',
+        contentType: 'application/json',
         handleUploadUrl: '/api/auth/custom-boundaries/save-token',
         clientPayload: JSON.stringify({
           layerId,
@@ -142,7 +143,12 @@ export default function CustomBoundaryModal({
           featureCount,
           uniqueNamesCount,
         }),
-        onUploadProgress: ({ percentage }) => setUploadProgress(Math.round(percentage)),
+        onUploadProgress: (evt) => {
+          const pct = evt?.percentage;
+          if (typeof pct === 'number' && !Number.isNaN(pct)) {
+            setUploadProgress(Math.min(100, Math.round(pct)));
+          }
+        },
       });
 
       // Fetch the just-saved row so we return the full metadata (id, uploaded_at)

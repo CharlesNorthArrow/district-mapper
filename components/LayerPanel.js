@@ -63,7 +63,7 @@ export default function LayerPanel({
   onCustomBoundaryToggle,
   onCustomBoundaryDelete,
 }) {
-  const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false, uploaded: false });
+  const [openSections, setOpenSections] = useState({ data: true, national: true, state: false, local: false, uploaded: true });
   const setSelectedStates = onSelectedStatesChange;
   const setSelectedCities = onSelectedCitiesChange;
   const [stateSearch, setStateSearch] = useState('');

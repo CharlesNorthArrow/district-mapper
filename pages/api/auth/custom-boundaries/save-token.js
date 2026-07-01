@@ -55,7 +55,7 @@ export default async function handler(req, res) {
         return {
           allowedContentTypes: ['application/json'],
           addRandomSuffix: false,
-          allowOverwrite: false,
+          allowOverwrite: true,
           tokenPayload: JSON.stringify({
             orgId,
             layerId: typeof summary.layerId === 'string' ? summary.layerId : '',
@@ -67,21 +67,26 @@ export default async function handler(req, res) {
         };
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
-        const { orgId, layerId, displayName, nameField, featureCount, uniqueNamesCount } = JSON.parse(tokenPayload);
-        await sql`
-          INSERT INTO custom_boundaries
-            (org_id, layer_id, display_name, name_field, blob_url, feature_count, unique_names_count)
-          VALUES
-            (${orgId}, ${layerId}, ${displayName}, ${nameField}, ${blob.url}, ${featureCount}, ${uniqueNamesCount})
-          ON CONFLICT (org_id, layer_id)
-          DO UPDATE SET
-            display_name = EXCLUDED.display_name,
-            name_field = EXCLUDED.name_field,
-            blob_url = EXCLUDED.blob_url,
-            feature_count = EXCLUDED.feature_count,
-            unique_names_count = EXCLUDED.unique_names_count,
-            uploaded_at = now()
-        `;
+        try {
+          const { orgId, layerId, displayName, nameField, featureCount, uniqueNamesCount } = JSON.parse(tokenPayload);
+          await sql`
+            INSERT INTO custom_boundaries
+              (org_id, layer_id, display_name, name_field, blob_url, feature_count, unique_names_count)
+            VALUES
+              (${orgId}, ${layerId}, ${displayName}, ${nameField}, ${blob.url}, ${featureCount}, ${uniqueNamesCount})
+            ON CONFLICT (org_id, layer_id)
+            DO UPDATE SET
+              display_name = EXCLUDED.display_name,
+              name_field = EXCLUDED.name_field,
+              blob_url = EXCLUDED.blob_url,
+              feature_count = EXCLUDED.feature_count,
+              unique_names_count = EXCLUDED.unique_names_count,
+              uploaded_at = now()
+          `;
+        } catch (err) {
+          console.error(`[custom-boundaries] onUploadCompleted failed: ${err.message}`, err);
+          throw err; // Re-throw so Vercel Blob retries or surfaces the failure
+        }
       },
     });
 
